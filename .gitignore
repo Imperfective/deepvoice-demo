@@ -1,0 +1,22 @@
+# 의존성 (PC에서 npm install로 재생성)
+node_modules/
+
+# 빌드 결과물 (PC에서 npm run build로 재생성)
+dist/
+
+# 환경변수 — API 키 등 민감정보 (절대 올리지 않음)
+.env
+.env.local
+
+# 수집된 설문 데이터 — 연구 데이터이므로 공개 저장소에 올리지 않음
+data/
+
+# 로그
+*.log
+/tmp/
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
