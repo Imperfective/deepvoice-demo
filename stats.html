@@ -189,6 +189,7 @@ function patternCards(byPattern) {
 
 const EXP_PNAME = { A:'A · 단순 텍스트', B:'B · 컬러·아이콘', C:'C · 멀티모달', D:'D · 행동 유도형' };
 function fmt(v, suffix='') { return (v === null || v === undefined) ? '—' : (v + suffix); }
+function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 async function loadExp() {
   let data;
@@ -220,6 +221,13 @@ async function loadExp() {
   const C = data.comparison || {};
   const cmpRows = [['습관화(반복 시 무시 경향)','habituation'],['가독성(글자·대비)','readability'],['햅틱 적절성','hapticOk'],['신뢰도 점수 도움','confScoreHelpful']]
     .map(([lbl,k]) => `<tr><td class="label">${lbl}</td><td>${fmt(C[k])}</td></tr>`).join('');
+  const FR = data.freeResponses || [];
+  const freeCards = FR.map(r => `
+    <div style="border:1px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-size:11.5px;font-weight:700;color:var(--primary);margin-bottom:5px">${escapeHtml(r.participantId)}</div>
+      ${r.improve ? `<div style="font-size:12.5px;color:var(--ink);line-height:1.55;white-space:pre-wrap"><b style="color:var(--sub)">개선 의견:</b> ${escapeHtml(r.improve)}</div>` : ''}
+      ${r.strategy ? `<div style="font-size:12.5px;color:var(--ink);line-height:1.55;white-space:pre-wrap;margin-top:4px"><b style="color:var(--sub)">대응 전략:</b> ${escapeHtml(r.strategy)}</div>` : ''}
+    </div>`).join('');
   const fmtTime = (s) => { if(!s) return '—'; try { return new Date(s).toLocaleString('ko-KR'); } catch { return '—'; } };
   const ip = data.inProgressList || [];
   const ipRows = ip.map(p => {
@@ -267,6 +275,13 @@ async function loadExp() {
       </table></div>
     </div>
 
+    <div class="grid2">
+      <div class="card"><h2>행동 의도 — 앞으로 의심 통화 시 (복수응답)</h2>${barChart(data.nextActionCounts || {})}</div>
+      <div class="card">
+        <h2>자유 응답 — 개선 의견·대응 전략 (${FR.length}명)</h2>
+        ${FR.length === 0 ? '<div class="empty" style="padding:16px">아직 자유 응답이 없습니다.</div>' : `<div style="max-height:360px;overflow-y:auto">${freeCards}</div>`}
+      </div>
+    </div>
     <div class="card">
       <h2>진행중 참여자 현황 (${ip.length}명 · 미완료)</h2>
       ${ip.length === 0 ? '<div class="empty" style="padding:20px">진행중인 참여자가 없습니다.</div>' : `

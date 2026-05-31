@@ -135,6 +135,7 @@ function experimentToCsv(participants) {
     'uiRecogSufficient', 'uiPromptedHangup', 'uiTimingOk',
     'uiTrust', 'uiComprehension', 'uiUsability', 'uiIntrusive', 'uiSatisfaction',
     'mostEffective', 'mostAnnoying', 'habituation', 'readability', 'hapticOk', 'confScoreHelpful',
+    'nextActions', 'improve', 'strategy',
     'completed', 'submittedAt',
   ];
   // 영문 키 → 한글 헤더명 (Excel 가독성)
@@ -146,6 +147,7 @@ function experimentToCsv(participants) {
     uiRecogSufficient: '인식충분_5점', uiPromptedHangup: '끊기유도_5점', uiTimingOk: '속도적절_5점',
     uiTrust: '신뢰도_5점', uiComprehension: '이해도_5점', uiUsability: '사용성_5점', uiIntrusive: '방해도역_5점', uiSatisfaction: '만족도_5점',
     mostEffective: '가장효과적', mostAnnoying: '가장거슬림', habituation: '습관화_5점', readability: '가독성_5점', hapticOk: '햅틱적절_5점', confScoreHelpful: '신뢰도점수도움_5점',
+    nextActions: '행동의도', improve: '개선의견(자유)', strategy: '대응전략(자유)',
     completed: '완료여부', submittedAt: '제출시각',
   };
   const esc = (v) => {
@@ -156,6 +158,8 @@ function experimentToCsv(participants) {
   for (const p of participants) {
     const d = p.demographics || {};
     const c = p.comparison || {};
+    const f = p.free || {};
+    const nextActionsStr = Array.isArray(f.nextActions) ? f.nextActions.join(' | ') : '';
     const calls = Array.isArray(p.callRecords) ? p.callRecords : [];
     const evals = Array.isArray(p.uiEvaluations) ? p.uiEvaluations : [];
     const evalByPattern = {};
@@ -176,6 +180,7 @@ function experimentToCsv(participants) {
         mostEffective: c.mostEffective, mostAnnoying: c.mostAnnoying,
         habituation: c.habituation, readability: c.readability,
         hapticOk: c.hapticOk, confScoreHelpful: c.confScoreHelpful,
+        nextActions: nextActionsStr, improve: f.improve || '', strategy: f.strategy || '',
         completed: p.completed ? 1 : 0, submittedAt: p.submittedAt,
       };
       lines.push(cols.map((k) => esc(row[k])).join(','));
@@ -1094,6 +1099,17 @@ app.get('/api/experiment/stats', (_req, res) => {
     hapticOk: mean(num(comps, 'hapticOk')),
     confScoreHelpful: mean(num(comps, 'confScoreHelpful')),
   };
+  // 자유 응답 모음 + 행동 의도 집계 (분석대상)
+  const freeResponses = completedPs.map(p => ({
+    participantId: p.participantId,
+    improve: (p.free || {}).improve || '',
+    strategy: (p.free || {}).strategy || '',
+  })).filter(r => r.improve || r.strategy);
+  const nextActionCounts = {};
+  for (const p of completedPs) {
+    const arr = (p.free && Array.isArray(p.free.nextActions)) ? p.free.nextActions : [];
+    for (const a of arr) nextActionCounts[a] = (nextActionCounts[a] || 0) + 1;
+  }
   // 진행중(미완료) 참여자 현황 — 누가 어디까지 했는지(이탈 모니터링)
   const inProgressList = ps.filter(p => !isAnalyzable(p)).map(p => ({
     participantId: p.participantId,
@@ -1101,7 +1117,7 @@ app.get('/api/experiment/stats', (_req, res) => {
     evals: (p.uiEvaluations || []).length,
     updatedAt: p.updatedAt || p.submittedAt || null,
   })).sort((a, b) => (b.calls - a.calls)); // 많이 진행한 순
-  res.json({ ok: true, participants: completedPs.length, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison, inProgressList });
+  res.json({ ok: true, participants: completedPs.length, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison, inProgressList, freeResponses, nextActionCounts });
 });
 
 // 실험 데이터 전체 삭제 (관리자 인증코드 — 설문 삭제와 동일 코드)
