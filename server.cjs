@@ -1094,7 +1094,14 @@ app.get('/api/experiment/stats', (_req, res) => {
     hapticOk: mean(num(comps, 'hapticOk')),
     confScoreHelpful: mean(num(comps, 'confScoreHelpful')),
   };
-  res.json({ ok: true, participants: completedPs.length, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison });
+  // 진행중(미완료) 참여자 현황 — 누가 어디까지 했는지(이탈 모니터링)
+  const inProgressList = ps.filter(p => !isAnalyzable(p)).map(p => ({
+    participantId: p.participantId,
+    calls: (p.callRecords || []).length,
+    evals: (p.uiEvaluations || []).length,
+    updatedAt: p.updatedAt || p.submittedAt || null,
+  })).sort((a, b) => (b.calls - a.calls)); // 많이 진행한 순
+  res.json({ ok: true, participants: completedPs.length, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison, inProgressList });
 });
 
 // 실험 데이터 전체 삭제 (관리자 인증코드 — 설문 삭제와 동일 코드)

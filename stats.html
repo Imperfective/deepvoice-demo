@@ -220,6 +220,18 @@ async function loadExp() {
   const C = data.comparison || {};
   const cmpRows = [['습관화(반복 시 무시 경향)','habituation'],['가독성(글자·대비)','readability'],['햅틱 적절성','hapticOk'],['신뢰도 점수 도움','confScoreHelpful']]
     .map(([lbl,k]) => `<tr><td class="label">${lbl}</td><td>${fmt(C[k])}</td></tr>`).join('');
+  const fmtTime = (s) => { if(!s) return '—'; try { return new Date(s).toLocaleString('ko-KR'); } catch { return '—'; } };
+  const ip = data.inProgressList || [];
+  const ipRows = ip.map(p => {
+    const pct = Math.round((p.calls/16)*100);
+    return `<tr>
+      <td class="label">${p.participantId}</td>
+      <td>${p.calls} / 16</td>
+      <td>${p.evals} / 4</td>
+      <td><div class="bar-track" style="height:14px"><div class="bar-fill" style="width:${Math.max(pct,6)}%;height:14px;font-size:10px">${pct}%</div></div></td>
+      <td style="font-size:11.5px;color:var(--muted)">${fmtTime(p.updatedAt)}</td>
+    </tr>`;
+  }).join('');
 
   const html = `
     <div class="card">
@@ -255,6 +267,15 @@ async function loadExp() {
       </table></div>
     </div>
 
+    <div class="card">
+      <h2>진행중 참여자 현황 (${ip.length}명 · 미완료)</h2>
+      ${ip.length === 0 ? '<div class="empty" style="padding:20px">진행중인 참여자가 없습니다.</div>' : `
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th style="text-align:left">참여자</th><th>통화</th><th>UI평가</th><th>진행률</th><th>마지막 활동</th></tr></thead>
+        <tbody>${ipRows}</tbody>
+      </table></div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:8px;">16통화 + 4 UI평가를 모두 마치면 ‘분석대상’으로 이동합니다. (1~3통화는 대부분 시작 직후 이탈)</div>`}
+    </div>
     <div class="card"><h2>연령대별 참여자 수</h2>${barChart(data.byAge)}</div>
   `;
   document.getElementById('exp-content').innerHTML = html;
