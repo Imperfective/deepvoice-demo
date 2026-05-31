@@ -255,8 +255,35 @@ export function ExpUiEval({ blockNumber, totalBlocks, pattern, onSubmit }: {
 }
 
 // ── 4. 종합 비교 설문 (B-3 + B-4) — 4 trial 종료 후 1회 ──────────────────────
-const PATTERN_PICK = ['A 단순 텍스트', 'B 컬러·아이콘', 'C 멀티모달', 'D 행동 유도형'];
-const PICK_CODE: Record<string, string> = { 'A 단순 텍스트': 'A', 'B 컬러·아이콘': 'B', 'C 멀티모달': 'C', 'D 행동 유도형': 'D' };
+// 경고 UI 4종 — 이름 + 상세 설명(참여자가 바로 이해하도록)
+const PATTERN_DESC: { code: string; name: string; desc: string }[] = [
+  { code: 'A', name: '단순 텍스트 경고', desc: '화면 상단에 “주의: 의심 통화” 같은 작은 글자만 표시 (색·소리·진동 없음)' },
+  { code: 'B', name: '컬러·아이콘 경고', desc: '빨간색 경고 배너 + ⚠ 아이콘으로 시각적으로 강조' },
+  { code: 'C', name: '멀티모달 경고', desc: '빨간 배너 + 경고음 + 진동/화면 흔들림 + 신뢰도 점수(%) 표시 (시각·청각·촉각 동시)' },
+  { code: 'D', name: '행동 유도형 경고', desc: '멀티모달(C)에 더해 “지금 통화 종료”·“가족에게 재확인 질문” 같은 구체적 행동 버튼 제공' },
+];
+
+// 경고 UI 단일 선택 — 이름 + 설명이 보이는 카드형
+function PatternPicker({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {PATTERN_DESC.map((o) => {
+        const active = value === o.code;
+        return (
+          <button key={o.code} onClick={() => onChange(o.code)} className="dv-btn" style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3, width: '100%',
+            padding: '11px 13px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+            border: active ? `2px solid ${DS.primary}` : '1.5px solid rgba(34,34,34,0.12)',
+            background: active ? DS.primaryLight : '#fff', fontFamily: 'var(--font-body)', transition: 'all 0.15s',
+          }}>
+            <span style={{ fontSize: 13.5, fontWeight: 800, color: active ? DS.primary : DS.ink }}>{o.code} · {o.name}</span>
+            <span style={{ fontSize: 12, color: active ? DS.primary200 : DS.muted, lineHeight: 1.45 }}>{o.desc}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ExpFinalSurvey({ onSubmit, submitting }: {
   onSubmit: (v: { comparison: ExpComparison; nextActions: string[]; improve: string; strategy: string }) => void;
@@ -277,15 +304,17 @@ export function ExpFinalSurvey({ onSubmit, submitting }: {
     <Shell title="종합 비교 설문" subtitle="네 가지 경고를 모두 체험한 뒤 평가"
       footer={<PrimaryBtn disabled={!ok || submitting} onClick={() => ok && onSubmit({
         comparison: {
-          mostEffective: PICK_CODE[mostEffective!] ?? mostEffective!,
-          mostAnnoying: PICK_CODE[mostAnnoying!] ?? mostAnnoying!,
+          mostEffective: mostEffective!, mostAnnoying: mostAnnoying!,
           habituation, readability, hapticOk, confScoreHelpful,
         },
         nextActions, improve, strategy,
       })}>{submitting ? '제출 중...' : '실험 완료 · 제출하기'}</PrimaryBtn>}>
-      <SectionTitle>패턴 비교</SectionTitle>
-      <div><QLabel text="가장 효과적이라고 느낀 경고는?" /><Choice options={PATTERN_PICK} value={mostEffective} onChange={setMostEffective} /></div>
-      <div><QLabel text="가장 거슬렸던(방해된) 경고는?" /><Choice options={PATTERN_PICK} value={mostAnnoying} onChange={setMostAnnoying} /></div>
+      <div style={{ fontSize: 12.5, color: DS.sub, lineHeight: 1.6, background: '#F9F9F9', borderRadius: 10, padding: '11px 13px' }}>
+        방금 체험하신 <b>4가지 경고 방식</b>을 비교해 주세요. 각 항목의 설명을 참고해 선택하시면 됩니다.
+      </div>
+      <SectionTitle>경고 방식 비교</SectionTitle>
+      <div><QLabel text="가장 효과적이라고 느낀 경고 방식은?" /><PatternPicker value={mostEffective} onChange={setMostEffective} /></div>
+      <div><QLabel text="가장 거슬렸던(방해된) 경고 방식은?" /><PatternPicker value={mostAnnoying} onChange={setMostAnnoying} /></div>
       <SectionTitle>추가 평가 (5점)</SectionTitle>
       <div><QLabel text="습관화 — 같은 경고가 반복되면 무시하게 될 것 같습니까?" /><Likert value={habituation} onChange={setHabituation} /></div>
       <div><QLabel text="가독성 — 글자 크기·색 대비가 충분하였습니까?" /><Likert value={readability} onChange={setReadability} /></div>
