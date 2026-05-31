@@ -72,6 +72,12 @@ function readExperiments() {
   try { return JSON.parse(fs.readFileSync(EXP_FILE, 'utf8')); } catch { return []; }
 }
 
+// 분석 대상 = 핵심 실험을 마친 참여자(4 UI 모두 평가 = 16통화 + 4평가 완료).
+// 최종 종합 비교 설문(completed)은 보조 데이터로, 미제출이어도 분석에 포함한다.
+function isAnalyzable(p) {
+  return p && Array.isArray(p.uiEvaluations) && p.uiEvaluations.length >= 4;
+}
+
 function nextParticipantSeq() {
   ensureDataDir();
   let n = 0;
@@ -1021,10 +1027,10 @@ app.get('/api/experiment', (_req, res) => {
   res.json({ ok: true, participants: readExperiments() });
 });
 
-// 실험 데이터 long-format CSV — 완료한 참여자만(미완료 세션 제외), 캐시 방지
+// 실험 데이터 long-format CSV — 핵심 실험을 마친 참여자만(미완료 드롭아웃 제외), 캐시 방지
 app.get('/api/experiment.csv', (_req, res) => {
-  const completed = readExperiments().filter(p => p.completed);
-  const csv = experimentToCsv(completed);
+  const analyzable = readExperiments().filter(isAnalyzable);
+  const csv = experimentToCsv(analyzable);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Content-Disposition', 'attachment; filename="deepvoice_experiment_long.csv"');
@@ -1034,7 +1040,7 @@ app.get('/api/experiment.csv', (_req, res) => {
 // 실험 진행 현황 요약 (수집 모니터링용)
 app.get('/api/experiment/stats', (_req, res) => {
   const ps = readExperiments();
-  const completedPs = ps.filter(p => p.completed); // 분석·집계는 완료 참여자만(미완료 세션 제외)
+  const completedPs = ps.filter(isAnalyzable); // 분석·집계는 핵심 실험 완료자(4 UI평가)만
   const allCalls = completedPs.flatMap(x => (x.callRecords || []));
   const allEvals = completedPs.flatMap(x => (x.uiEvaluations || []));
   const num = (arr, f) => arr.map(t => Number(t[f])).filter(v => Number.isFinite(v));

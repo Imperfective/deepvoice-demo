@@ -222,7 +222,8 @@ async function loadExp() {
 
   const html = `
     <div class="card">
-      <h2>패턴별 핵심 지표 (완료 ${data.participants}명 · 진행중 ${data.inProgress||0}명 · ${data.calls} 통화)</h2>
+      <h2>패턴별 핵심 지표 (분석대상 ${data.participants}명 · 진행중 ${data.inProgress||0}명 · ${data.calls} 통화)</h2>
+      <div style="font-size:11px; color:var(--muted); margin:-2px 0 8px;">분석대상 = 16통화 + 4개 UI평가를 모두 마친 참여자(최종 종합설문 미제출이어도 포함). 진행중 = 그 외 미완료 세션.</div>
       <div style="overflow-x:auto">
       <table>
         <thead><tr>
