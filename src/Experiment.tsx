@@ -145,7 +145,8 @@ export function ExpConsent({ onAgree, onDemo }: { onAgree: () => void; onDemo: (
         <p style={{ fontSize: 13, color: DS.sub, lineHeight: 1.65, margin: 0 }}>
           본 연구는 <strong>딥보이스(AI 합성 음성) 보이스피싱</strong> 통화 화면의
           <strong> 경고 UX(사용자 경험)</strong>가 사용자의 사기 인지와 대처에 미치는 효과를 측정하는 학술 실험입니다.
-          잠시 후 <strong>가족(자녀)이 사고를 당해 합의금을 요구하는 전화</strong>를 받게 됩니다.
+          잠시 후 다음 <strong>네 가지 유형의 보이스피싱 전화</strong>를 받게 됩니다 —
+          ① 교통사고 합의금(자녀 사칭), ② 검찰청 사칭(수사관), ③ 의료응급 수술비(자녀 사칭), ④ 금융기관 사칭(보안 상담원).
           <strong> 실제로 그런 상황에 처했다고 가정</strong>하고 평소처럼 자연스럽게 반응해 주세요.
         </p>
         <div style={{ marginTop: 12, padding: '11px 13px', background: 'rgba(211,47,47,0.06)', border: '1px solid rgba(211,47,47,0.22)', borderRadius: 10, fontSize: 12, color: '#9b1c1c', lineHeight: 1.6 }}>
