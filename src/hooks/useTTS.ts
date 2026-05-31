@@ -58,7 +58,13 @@ function buildPhoneChain(ctx: AudioContext): {
 
   const stopNoise = () => {
     try { noiseSource?.stop(); } catch (_) {}
+    try { noiseSource?.disconnect(); } catch (_) {}
     noiseSource = null;
+    // 노드 누수 방지 — 사용 끝난 체인 노드를 destination에서 분리(장시간 세션 메모리 압박 완화)
+    try { bandpass.disconnect(); } catch (_) {}
+    try { comp.disconnect(); } catch (_) {}
+    try { noiseFilter.disconnect(); } catch (_) {}
+    try { noiseGain.disconnect(); } catch (_) {}
   };
 
   return { input: bandpass, output: comp, startNoise, stopNoise };

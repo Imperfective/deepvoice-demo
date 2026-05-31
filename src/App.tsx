@@ -517,6 +517,7 @@ export default function App() {
 
   // ── 실험(완전요인) 상태 ──
   const [expSession, setExpSession]   = useState<ExpSession | null>(null);
+  const [savedSession, setSavedSession] = useState<ExpSession | null>(null); // 새로고침 복구용(localStorage)
   const [blockIndex, setBlockIndex]   = useState(0);   // 현재 UI 블록 0..3
   const [scenarioIdx, setScenarioIdx] = useState(0);   // 블록 내 시나리오 0..3
   const [scriptDone, setScriptDone] = useState(false); // 대본(마지막 음성)까지 재생 완료
@@ -552,6 +553,22 @@ export default function App() {
     fetch('/api/health').then(r => r.json())
       .then(d => setApiStatus(d))
       .catch(() => setApiStatus({ claudeReady: false, ollamaReady: false, ollamaModel: null, elevenLabsReady: false, mode: 'script' }));
+  }, []);
+
+  // 새로고침/탭종료로 끊겼을 때 이어서 하기 — localStorage에서 미완료 세션 복구
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('dv_exp_session');
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s && s.participantId && Array.isArray(s.uiEvaluations) && s.uiEvaluations.length < 4
+            && Array.isArray(s.callRecords) && s.callRecords.length > 0) {
+          setSavedSession(s);
+        } else {
+          localStorage.removeItem('dv_exp_session');
+        }
+      }
+    } catch (_) {}
   }, []);
 
   // messagesRef를 항상 최신 messages로 동기화
@@ -592,7 +609,7 @@ export default function App() {
       }
       if (expMode) {
         // 실험모드: 현재 시나리오의 고정 재확인 질문(표준 자극) — AI 호출 없음
-        setReverifyQuestion(EXP_SCENARIOS[scenario as ExpScenarioId].reverifyQuestion);
+        setReverifyQuestion(EXP_SCENARIOS[scenario as ExpScenarioId]?.reverifyQuestion ?? '');
         setReverifyLoading(false);
       } else {
         // 데모모드: 대화 맥락으로 AI 재확인 질문 생성
@@ -666,8 +683,9 @@ export default function App() {
     }, scenarioId); // 시나리오를 명시 전달 → 통화마다 올바른 음성
   }, [addAssistantMessage, speakAsAttacker]);
 
-  // 진행 중 점진 저장 — 중도 이탈해도 서버에 보존(fire-and-forget)
+  // 진행 중 점진 저장 — 서버 + localStorage(새로고침 복구용)
   const saveProgress = useCallback((session: ExpSession) => {
+    try { localStorage.setItem('dv_exp_session', JSON.stringify(session)); } catch (_) {}
     fetch('/api/experiment/save', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -740,6 +758,8 @@ export default function App() {
 
   // ── 실험: 등록(enroll) + 첫 통화 시작 ──
   const enrollAndStart = useCallback(async (demographics: ExpDemographics) => {
+    setSavedSession(null);
+    try { localStorage.removeItem('dv_exp_session'); } catch (_) {} // 새 참여자 — 이전 복구 데이터 제거
     try {
       const res = await fetch('/api/experiment/enroll', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -789,6 +809,7 @@ export default function App() {
           free: { nextActions: payload.nextActions, improve: payload.improve, strategy: payload.strategy },
         }),
       });
+      try { localStorage.removeItem('dv_exp_session'); } catch (_) {} // 완료 → 복구 데이터 제거
       setPhase('exp-done');
     } catch {
       alert('제출에 실패했습니다. 네트워크를 확인하고 다시 시도해 주세요.');
@@ -797,10 +818,33 @@ export default function App() {
     }
   }, []);
 
+  // 새로고침/팅김 후 이어서 하기 — 저장된 진행 상태에서 다음 단계로 복귀
+  const resumeExp = useCallback(() => {
+    const s = savedSession;
+    if (!s) return;
+    expSessionRef.current = s;
+    setExpSession(s);
+    setSavedSession(null);
+    const evals = s.uiEvaluations.length;
+    const callsInBlock = Math.max(0, s.callRecords.length - evals * 4);
+    blockIndexRef.current = evals;
+    setBlockIndex(evals);
+    if (evals >= 4) {
+      setPhase('exp-final');               // 16통화+4평가 끝 → 종합설문
+    } else if (callsInBlock >= 4) {
+      scenarioIdxRef.current = 3; setScenarioIdx(3);
+      setPhase('exp-ui-eval');             // 4통화 끝 → 이 UI 평가
+    } else {
+      startExpCall(evals, callsInBlock);   // 다음(끊긴) 통화부터 이어서
+    }
+  }, [savedSession, startExpCall]);
+
   const restartExp = useCallback(() => {
     expSessionRef.current = null;
     setExpSession(null); setBlockIndex(0); setScenarioIdx(0);
     blockIndexRef.current = 0; scenarioIdxRef.current = 0;
+    setSavedSession(null);
+    try { localStorage.removeItem('dv_exp_session'); } catch (_) {}
     setPhase('exp-consent');
   }, []);
 
@@ -947,7 +991,10 @@ export default function App() {
 
   // ── 실험(피험자내) 화면들 ──
   if (phase === 'exp-consent') {
-    return <ExpConsent onAgree={() => setPhase('exp-demographics')} onDemo={() => setPhase('setup')} />;
+    const resumeInfo = savedSession
+      ? { calls: savedSession.callRecords.length, total: 16, onResume: resumeExp }
+      : undefined;
+    return <ExpConsent onAgree={() => setPhase('exp-demographics')} onDemo={() => setPhase('setup')} resume={resumeInfo} />;
   }
   if (phase === 'exp-demographics') {
     return <ExpDemographicsForm onSubmit={enrollAndStart} />;

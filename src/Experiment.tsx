@@ -133,9 +133,25 @@ function PrimaryBtn({ onClick, disabled, children, color = DS.success }: {
 }
 
 // ── 1. 연구 동의 ─────────────────────────────────────────────────────────────
-export function ExpConsent({ onAgree, onDemo }: { onAgree: () => void; onDemo: () => void }) {
+export function ExpConsent({ onAgree, onDemo, resume }: {
+  onAgree: () => void; onDemo: () => void;
+  resume?: { calls: number; total: number; onResume: () => void };
+}) {
   return (
     <Shell title="딥보이스 경고 UX 연구" subtitle="피험자내 실험 · 약 7~10분 소요">
+      {resume && (
+        <div style={{ background: 'rgba(46,158,91,0.08)', border: `1.5px solid ${DS.success}`, borderRadius: 14, padding: '14px 16px' }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: DS.success, marginBottom: 4 }}>이어서 진행할 수 있어요</div>
+          <div style={{ fontSize: 12.5, color: DS.sub, lineHeight: 1.55, marginBottom: 10 }}>
+            이전에 진행하던 실험이 있습니다 (통화 {resume.calls}/{resume.total} 완료). 끊긴 지점부터 이어서 진행하세요.
+          </div>
+          <button onClick={resume.onResume} className="dv-btn" style={{
+            width: '100%', background: DS.success, color: '#fff', border: 'none', borderRadius: 12,
+            padding: '13px', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-body)',
+            boxShadow: '0 4px 14px rgba(46,158,91,0.3)',
+          }}>이어서 하기 →</button>
+        </div>
+      )}
       <div style={{ background: '#fff', borderRadius: 16, padding: '16px 18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${DS.primaryLight}` }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: DS.primary, marginBottom: 8 }}>연구 참여 안내</div>
         <div style={{ fontSize: 12.5, color: DS.sub, lineHeight: 1.6, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
