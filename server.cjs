@@ -16,6 +16,11 @@ const SURVEY_FILE = path.join(DATA_DIR, 'surveys.json');
 // 추가 전용 안전 로그 — 절대 덮어쓰지 않고 한 줄씩만 append (JSONL)
 const SURVEY_LOG = path.join(DATA_DIR, 'surveys.log.jsonl');
 
+// ─── 피험자내(within-subjects) 실험 데이터 (논문 Methods 일치) ─────────────────
+const EXP_FILE    = path.join(DATA_DIR, 'experiment.json');      // 참여자 1명 = 1 레코드
+const EXP_LOG     = path.join(DATA_DIR, 'experiment.log.jsonl'); // append-only 백업
+const EXP_COUNTER = path.join(DATA_DIR, 'experiment.counter');   // 참여자 일련번호(카운터밸런싱용)
+
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(SURVEY_FILE)) fs.writeFileSync(SURVEY_FILE, '[]', 'utf8');
@@ -48,6 +53,129 @@ function appendSurvey(entry) {
   all.push(entry);
   fs.writeFileSync(SURVEY_FILE, JSON.stringify(all, null, 2), 'utf8');
   return all.length;
+}
+
+// ─── 실험 저장/배정 헬퍼 ────────────────────────────────────────────────────────
+// 완전요인 피험자내 설계: 참여자 1명이 4 UI(경고패턴) × 4 시나리오 = 16통화를 모두 경험.
+// UI 블록 순서는 라틴방격으로 균형 배정(순서효과 상쇄), 블록 내 시나리오 순서도 회전 배정.
+const PATTERN_SQUARES = [
+  ['A', 'B', 'C', 'D'],
+  ['B', 'A', 'D', 'C'],
+  ['C', 'D', 'A', 'B'],
+  ['D', 'C', 'B', 'A'],
+];
+const SCEN_BASE = ['accident', 'prosecutor', 'medical', 'bank'];
+function rotate(arr, k) { const n = arr.length; k = ((k % n) + n) % n; return arr.slice(k).concat(arr.slice(0, k)); }
+
+function readExperiments() {
+  ensureDataDir();
+  try { return JSON.parse(fs.readFileSync(EXP_FILE, 'utf8')); } catch { return []; }
+}
+
+function nextParticipantSeq() {
+  ensureDataDir();
+  let n = 0;
+  try { n = parseInt(fs.readFileSync(EXP_COUNTER, 'utf8'), 10) || 0; } catch { n = 0; }
+  n += 1;
+  fs.writeFileSync(EXP_COUNTER, String(n), 'utf8');
+  return n;
+}
+
+function appendExperiment(entry) {
+  ensureDataDir();
+  fs.appendFileSync(EXP_LOG, JSON.stringify(entry) + '\n', 'utf8'); // append-only 백업 먼저
+  const all = readExperiments();
+  all.push(entry);
+  fs.writeFileSync(EXP_FILE, JSON.stringify(all, null, 2), 'utf8');
+  return all.length;
+}
+
+// participantId 기준 upsert — 진행 중 점진 저장(데이터 유실 방지). 완료 시 백업 로그에도 기록.
+function upsertExperiment(entry) {
+  ensureDataDir();
+  const all = readExperiments();
+  const i = all.findIndex((p) => p.participantId === entry.participantId);
+  if (i >= 0) all[i] = entry; else all.push(entry);
+  fs.writeFileSync(EXP_FILE, JSON.stringify(all, null, 2), 'utf8');
+  if (entry.completed) fs.appendFileSync(EXP_LOG, JSON.stringify(entry) + '\n', 'utf8');
+  return all.length;
+}
+
+// 요청 본문 → 실험 레코드 (점진 저장·최종 제출 공용)
+function buildExpEntry(b, completed) {
+  return {
+    participantId: b.participantId,
+    seq: b.seq ?? null,
+    completed: !!completed,
+    updatedAt: new Date().toISOString(),
+    submittedAt: completed ? new Date().toISOString() : (b.submittedAt ?? null),
+    order: Array.isArray(b.order) ? b.order : [],
+    scenarioOrders: Array.isArray(b.scenarioOrders) ? b.scenarioOrders : [],
+    demographics: b.demographics ?? {},
+    callRecords: Array.isArray(b.callRecords) ? b.callRecords : [],
+    uiEvaluations: Array.isArray(b.uiEvaluations) ? b.uiEvaluations : [],
+    comparison: b.comparison ?? {},
+    free: b.free ?? {},
+  };
+}
+
+// 실험 데이터를 long-format CSV로 변환 (통화 1건 = 1행, 90명×16=1440행)
+// UI(패턴) 수준 5점 평가는 해당 패턴의 4개 통화 행에 반복 기재.
+function experimentToCsv(participants) {
+  const cols = [
+    'participantId', 'seq', 'ageGroup', 'gender', 'edu', 'usage',
+    'priorVishing', 'priorDeepfake', 'uiOrder', 'blockOrder', 'pattern', 'scenarioPos', 'scenario',
+    'terminationAttempted', 'reactionTimeSec', 'durationSec',
+    'uiRecogSufficient', 'uiPromptedHangup', 'uiTimingOk',
+    'uiTrust', 'uiComprehension', 'uiUsability', 'uiIntrusive', 'uiSatisfaction',
+    'mostEffective', 'mostAnnoying', 'habituation', 'readability', 'hapticOk', 'confScoreHelpful',
+    'completed', 'submittedAt',
+  ];
+  // 영문 키 → 한글 헤더명 (Excel 가독성)
+  const COL_LABELS = {
+    participantId: '참여자ID', seq: '일련번호', ageGroup: '연령대', gender: '성별', edu: '학력',
+    usage: '스마트폰사용시간', priorVishing: '보이스피싱경험', priorDeepfake: '딥페이크인지',
+    uiOrder: 'UI제시순서', blockOrder: 'UI블록순서', pattern: '경고패턴', scenarioPos: '시나리오순서', scenario: '시나리오',
+    terminationAttempted: '통화종료시도', reactionTimeSec: '반응시간초', durationSec: '통화길이초',
+    uiRecogSufficient: '인식충분_5점', uiPromptedHangup: '끊기유도_5점', uiTimingOk: '속도적절_5점',
+    uiTrust: '신뢰도_5점', uiComprehension: '이해도_5점', uiUsability: '사용성_5점', uiIntrusive: '방해도역_5점', uiSatisfaction: '만족도_5점',
+    mostEffective: '가장효과적', mostAnnoying: '가장거슬림', habituation: '습관화_5점', readability: '가독성_5점', hapticOk: '햅틱적절_5점', confScoreHelpful: '신뢰도점수도움_5점',
+    completed: '완료여부', submittedAt: '제출시각',
+  };
+  const esc = (v) => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.map((k) => esc(COL_LABELS[k] || k)).join(',')];
+  for (const p of participants) {
+    const d = p.demographics || {};
+    const c = p.comparison || {};
+    const calls = Array.isArray(p.callRecords) ? p.callRecords : [];
+    const evals = Array.isArray(p.uiEvaluations) ? p.uiEvaluations : [];
+    const evalByPattern = {};
+    for (const e of evals) evalByPattern[e.pattern] = e;
+    for (const t of calls) {
+      const ev = evalByPattern[t.pattern] || {};
+      const row = {
+        participantId: p.participantId, seq: p.seq, ageGroup: d.ageGroup,
+        gender: d.gender, edu: d.edu, usage: d.usage,
+        priorVishing: d.priorVishing, priorDeepfake: d.priorDeepfake,
+        uiOrder: (p.order || []).join('-'), blockOrder: t.blockOrder, pattern: t.pattern,
+        scenarioPos: t.scenarioPos, scenario: t.scenario,
+        terminationAttempted: t.terminationAttempted,
+        reactionTimeSec: t.reactionTimeSec, durationSec: t.durationSec,
+        uiRecogSufficient: ev.recogSufficient, uiPromptedHangup: ev.promptedHangup, uiTimingOk: ev.timingOk,
+        uiTrust: ev.trust, uiComprehension: ev.comprehension, uiUsability: ev.usability,
+        uiIntrusive: ev.intrusive, uiSatisfaction: ev.satisfaction,
+        mostEffective: c.mostEffective, mostAnnoying: c.mostAnnoying,
+        habituation: c.habituation, readability: c.readability,
+        hapticOk: c.hapticOk, confScoreHelpful: c.confScoreHelpful,
+        completed: p.completed ? 1 : 0, submittedAt: p.submittedAt,
+      };
+      lines.push(cols.map((k) => esc(row[k])).join(','));
+    }
+  }
+  return '﻿' + lines.join('\n'); // BOM(Excel 한글)
 }
 
 function surveysToCsv(rows) {
@@ -480,13 +608,13 @@ const VOICE_MAP = {
 // pitch/rate로 시나리오별 캐릭터를 구분한다.
 const EDGE_VOICE_MAP = {
   // 교통사고 — 딸: 젊은 여성, 높고 다급한 톤
-  accident:   { voice: 'ko-KR-SunHiNeural',  rate: '+15%', pitch: '+12%' },
-  // 의료응급 — 아들: 젊은 남성, 고통스럽고 약간 빠른 톤
-  medical:    { voice: 'ko-KR-HyunsuNeural', rate: '+8%',  pitch: '+3%'  },
-  // 검찰청 — 중후한 남성 수사관: 낮고 무게감 있는 권위적 톤
-  prosecutor: { voice: 'ko-KR-InJoonNeural', rate: '-5%',  pitch: '-18%' },
-  // 금융기관 — 여성 상담원: 차분하고 전문적인 톤 (딸과 음성은 같지만 pitch로 구분)
-  bank:       { voice: 'ko-KR-SunHiNeural',  rate: '+2%',  pitch: '-5%'  },
+  accident:   { voice: 'ko-KR-SunHiNeural',              rate: '+14%', pitch: '+22%' },
+  // 의료응급 — 아들: 젊은 남성 (Hyunsu), 고통스럽고 약간 빠른 톤
+  medical:    { voice: 'ko-KR-HyunsuMultilingualNeural', rate: '+8%',  pitch: '+10%' },
+  // 검찰청 — 중후한 남성 수사관 (InJoon): 낮고 무게감 있는 권위적 톤
+  prosecutor: { voice: 'ko-KR-InJoonNeural',             rate: '-6%',  pitch: '-16%' },
+  // 금융기관 — 차분한 여성 상담원: 딸과 같은 음성이나 낮은 pitch로 성인 여성처럼 구분
+  bank:       { voice: 'ko-KR-SunHiNeural',              rate: '-2%',  pitch: '-12%' },
 };
 
 let _MsEdgeTTS = null, _EDGE_FMT = null;
@@ -838,6 +966,170 @@ app.post('/api/surveys/restore', (_req, res) => {
     return res.json({ ok: true, restored: fromLog.length, before: current.length });
   }
   res.json({ ok: true, restored: current.length, before: current.length, message: '복원할 추가 데이터 없음' });
+});
+
+// 설문 데이터 전체 삭제 (관리자 인증코드 필요) — 대시보드 수동 삭제용
+const ADMIN_CODE = process.env.ADMIN_CODE || '2026';
+app.post('/api/surveys/clear', (req, res) => {
+  const code = String((req.body && req.body.code) || '');
+  if (code !== ADMIN_CODE) {
+    return res.status(403).json({ ok: false, error: '인증코드가 올바르지 않습니다.' });
+  }
+  const before = readSurveys().length;
+  // 메인 파일만 비움 — 백업 로그(SURVEY_LOG)는 보존하여 /api/surveys/restore 로 복구 가능
+  fs.writeFileSync(SURVEY_FILE, '[]', 'utf8');
+  console.log(`🗑️  데모 설문 비움(백업 로그 보존): ${before}건`);
+  res.json({ ok: true, deleted: before });
+});
+
+// ─── 피험자내 실험 API (논문 Methods: 라틴방격 배정 + 4 trial 연결) ─────────────
+
+// 참여자 등록 — 일련번호 발급 + 라틴방격 패턴 순서 배정 (서버측 카운터밸런싱)
+app.post('/api/experiment/enroll', (req, res) => {
+  const seq = nextParticipantSeq();
+  const row = (seq - 1) % PATTERN_SQUARES.length;
+  const order = PATTERN_SQUARES[row];                          // UI 블록 순서 (4, 라틴방격 균형)
+  // 시나리오 순서는 모든 블록에서 고정: 교통사고→검찰청→의료응급→금융기관
+  const scenarioOrders = order.map(() => SCEN_BASE.slice());
+  const ageGroup = (req.body && req.body.ageGroup) || '';
+  const participantId = `P${String(seq).padStart(3, '0')}`;
+  console.log(`🧪 실험 참여자 등록: ${participantId} (UI순서 ${order.join('-')}, 연령 ${ageGroup || '미지정'})`);
+  res.json({ ok: true, participantId, seq, order, scenarioOrders, ageGroup });
+});
+
+// 진행 중 점진 저장 (통화·UI평가마다 호출) — 중도 이탈해도 데이터 보존
+app.post('/api/experiment/save', (req, res) => {
+  const b = req.body || {};
+  if (!b.participantId) return res.status(400).json({ ok: false, error: 'participantId 누락' });
+  const entry = buildExpEntry(b, false);
+  upsertExperiment(entry);
+  res.json({ ok: true, participantId: entry.participantId, calls: entry.callRecords.length });
+});
+
+// 최종 제출 — 완료 표시(completed=true) + 백업 로그 기록
+app.post('/api/experiment/submit', (req, res) => {
+  const b = req.body || {};
+  if (!b.participantId) return res.status(400).json({ ok: false, error: 'participantId 누락' });
+  const entry = buildExpEntry(b, true);
+  const count = upsertExperiment(entry);
+  console.log(`🧪 실험 제출 완료: ${entry.participantId} (총 참여자 ${count}명, 통화 ${entry.callRecords.length}건)`);
+  res.json({ ok: true, count, participantId: entry.participantId });
+});
+
+// 실험 원본 JSON
+app.get('/api/experiment', (_req, res) => {
+  res.json({ ok: true, participants: readExperiments() });
+});
+
+// 실험 데이터 long-format CSV — 완료한 참여자만(미완료 세션 제외), 캐시 방지
+app.get('/api/experiment.csv', (_req, res) => {
+  const completed = readExperiments().filter(p => p.completed);
+  const csv = experimentToCsv(completed);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Content-Disposition', 'attachment; filename="deepvoice_experiment_long.csv"');
+  res.send(csv);
+});
+
+// 실험 진행 현황 요약 (수집 모니터링용)
+app.get('/api/experiment/stats', (_req, res) => {
+  const ps = readExperiments();
+  const completedPs = ps.filter(p => p.completed); // 분석·집계는 완료 참여자만(미완료 세션 제외)
+  const allCalls = completedPs.flatMap(x => (x.callRecords || []));
+  const allEvals = completedPs.flatMap(x => (x.uiEvaluations || []));
+  const num = (arr, f) => arr.map(t => Number(t[f])).filter(v => Number.isFinite(v));
+  const mean = (a) => a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null;
+  const rate = (arr, f) => arr.length ? +((arr.filter(t => t[f] === 1 || t[f] === '1' || t[f] === true).length / arr.length) * 100).toFixed(1) : null;
+
+  const patterns = ['A', 'B', 'C', 'D'];
+  const byPattern = {};
+  for (const p of patterns) {
+    const calls = allCalls.filter(t => t.pattern === p);   // 통화별 객관지표(패턴당 최대 4×참여자)
+    const evals = allEvals.filter(e => e.pattern === p);   // UI 평가(패턴당 참여자 1건)
+    byPattern[p] = {
+      n: calls.length,
+      terminationRate: rate(calls, 'terminationAttempted'),
+      reactionTimeAvg: mean(num(calls, 'reactionTimeSec')),
+      // 경고 알림(UI) 상세 평가 — UI당 1회(5점 평균)
+      recogSufficient: mean(num(evals, 'recogSufficient')), // ① 경고만으로 인식 충분성
+      promptedHangup: mean(num(evals, 'promptedHangup')),   // ② 끊기 유도
+      timingOk: mean(num(evals, 'timingOk')),               // ③ 속도·시점 적절성
+      trust: mean(num(evals, 'trust')), comprehension: mean(num(evals, 'comprehension')),
+      usability: mean(num(evals, 'usability')), intrusive: mean(num(evals, 'intrusive')),
+      satisfaction: mean(num(evals, 'satisfaction')),
+    };
+  }
+  // 시나리오별 집계 (통화 기준)
+  const SCEN = { accident: '교통사고 합의금', prosecutor: '검찰청 사칭', medical: '의료응급 수술비', bank: '금융기관 사칭' };
+  const byScenario = {};
+  for (const sc of Object.keys(SCEN)) {
+    const calls = allCalls.filter(t => t.scenario === sc);
+    byScenario[sc] = {
+      label: SCEN[sc], n: calls.length,
+      terminationRate: rate(calls, 'terminationAttempted'),
+      reactionTimeAvg: mean(num(calls, 'reactionTimeSec')),
+    };
+  }
+  // 연령대별 참여자 수
+  const byAge = {};
+  for (const p of completedPs) {
+    const g = (p.demographics && p.demographics.ageGroup) || '미지정';
+    byAge[g] = (byAge[g] || 0) + 1;
+  }
+  // 최종 통합 설문(종합 비교) 집계 — 완료 참여자만
+  const comps = completedPs.map(p => p.comparison || {}).filter(c => c && (c.mostEffective || c.habituation != null));
+  const votes = (f) => { const o = { A: 0, B: 0, C: 0, D: 0 }; for (const c of comps) { if (o[c[f]] !== undefined) o[c[f]]++; } return o; };
+  const comparison = {
+    n: comps.length,
+    mostEffective: votes('mostEffective'),
+    mostAnnoying: votes('mostAnnoying'),
+    habituation: mean(num(comps, 'habituation')),
+    readability: mean(num(comps, 'readability')),
+    hapticOk: mean(num(comps, 'hapticOk')),
+    confScoreHelpful: mean(num(comps, 'confScoreHelpful')),
+  };
+  res.json({ ok: true, participants: completedPs.length, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison });
+});
+
+// 실험 데이터 전체 삭제 (관리자 인증코드 — 설문 삭제와 동일 코드)
+app.post('/api/experiment/clear', (req, res) => {
+  const code = String((req.body && req.body.code) || '');
+  if (code !== ADMIN_CODE) return res.status(403).json({ ok: false, error: '인증코드가 올바르지 않습니다.' });
+  const current = readExperiments();
+  const before = current.length;
+  // 안전장치: 삭제 전에 현재 전체 데이터를 append-only 백업 로그에 보존 → /api/experiment/restore 로 복구 가능
+  try {
+    const stamp = new Date().toISOString();
+    for (const p of current) fs.appendFileSync(EXP_LOG, JSON.stringify({ ...p, _archivedAt: stamp }) + '\n', 'utf8');
+  } catch {}
+  fs.writeFileSync(EXP_FILE, '[]', 'utf8');
+  // 백업 로그(EXP_LOG)는 절대 비우지 않음 — 영구 보존
+  try { if (fs.existsSync(EXP_COUNTER)) fs.writeFileSync(EXP_COUNTER, '0', 'utf8'); } catch {}
+  console.log(`🗑️  실험 데이터 비움(백업 로그는 보존): ${before}명`);
+  res.json({ ok: true, deleted: before });
+});
+
+// 백업 로그(append-only)에서 실험 데이터 복구 — participantId별 최신/완료본 우선
+app.post('/api/experiment/restore', (_req, res) => {
+  if (!fs.existsSync(EXP_LOG)) return res.json({ ok: true, restored: 0, message: '백업 로그 없음' });
+  const lines = fs.readFileSync(EXP_LOG, 'utf8').split('\n').filter(Boolean);
+  const byId = {};
+  for (const ln of lines) {
+    let o; try { o = JSON.parse(ln); } catch { continue; }
+    if (!o || !o.participantId) continue;
+    const prev = byId[o.participantId];
+    // 완료본 우선, 그다음 최신 updatedAt
+    const score = (x) => (x.completed ? 1e15 : 0) + (Date.parse(x.updatedAt || x.submittedAt || 0) || 0);
+    if (!prev || score(o) >= score(prev)) byId[o.participantId] = o;
+  }
+  const merged = Object.values(byId).map(({ _archivedAt, ...p }) => p);
+  // 현재 메인 파일과 병합(메인의 진행중 데이터도 보존)
+  const current = readExperiments();
+  const curIds = new Set(current.map(p => p.participantId));
+  const restored = merged.filter(p => !curIds.has(p.participantId));
+  fs.writeFileSync(EXP_FILE, JSON.stringify([...current, ...restored], null, 2), 'utf8');
+  console.log(`♻️  실험 데이터 복구: +${restored.length}명 (총 ${current.length + restored.length}명)`);
+  res.json({ ok: true, restored: restored.length, total: current.length + restored.length });
 });
 
 // 설문 CSV 다운로드 (Excel 한글 지원)

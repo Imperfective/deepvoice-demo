@@ -163,3 +163,57 @@ export function IcClose({ size = 20, color = '#fff' }: IconProps) {
     </svg>
   );
 }
+
+// 안내·문서 (open book) — 연구 참여 안내
+export function IcBook({ size = 18, color = '#004F59' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M12 6.4C10.4 5.2 8.4 4.7 6 4.7c-1 0-1.9.1-2.7.3v13c.8-.2 1.7-.3 2.7-.3 2.4 0 4.4.5 6 1.7" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 6.4c1.6-1.2 3.6-1.7 6-1.7 1 0 1.9.1 2.7.3v13c-.8-.2-1.7-.3-2.7-.3-2.4 0-4.4.5-6 1.7" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 6.4v13" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// 잠금 (privacy/anonymity) — 익명 안내
+export function IcLock({ size = 14, color = '#9aa0a0' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="5" y="10.3" width="14" height="9.7" rx="2.4" fill={color} />
+      <path d="M8 10.3V7.8a4 4 0 0 1 8 0v2.5" stroke={color} strokeWidth="1.9" />
+      <rect x="11.1" y="13.4" width="1.8" height="4" rx="0.9" fill="#fff" />
+    </svg>
+  );
+}
+
+// 클립보드 (설문) — 설문 작성·참여
+export function IcClipboard({ size = 18, color = '#fff' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="5" y="4.5" width="14" height="16" rx="2.5" stroke={color} strokeWidth="1.8" />
+      <rect x="9" y="3" width="6" height="3.6" rx="1.3" fill={color} />
+      <path d="M8.6 11h6.8M8.6 14.5h4.6" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// 돋보기 (재확인) — 재확인 질문
+export function IcSearch({ size = 18, color = '#b45309' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="10.8" cy="10.8" r="6" stroke={color} strokeWidth="1.8" />
+      <path d="M15.3 15.3 20 20" stroke={color} strokeWidth="1.9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// 경고 삼각형 (단색) — 인라인 경고 텍스트용
+export function IcAlert({ size = 16, color = '#A96900' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M12 4 21 19.5H3L12 4Z" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M12 10v3.6" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="12" cy="16.4" r="1.1" fill={color} />
+    </svg>
+  );
+}

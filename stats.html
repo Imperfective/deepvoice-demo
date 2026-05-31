@@ -16,8 +16,26 @@
   h1 { font-size:24px; font-weight:800; letter-spacing:-0.5px; }
   .sub { color:var(--sub); font-size:14px; margin-top:4px; }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin:16px 0; }
-  .btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:10px 16px; font-size:14px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-block; }
+  .btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:10px 16px; font-size:14px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:7px; }
+  .ic { width:17px; height:17px; flex-shrink:0; }
+  .ic-lg { width:25px; height:25px; flex-shrink:0; }
   .btn.ghost { background:#fff; color:var(--primary); border:1.5px solid var(--primary); }
+  .btn.danger { background:#fff; color:var(--error); border:1.5px solid var(--error); }
+  .btn.danger.solid { background:var(--error); color:#fff; border:none; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#fff; border-radius:16px; padding:24px 22px; width:100%; max-width:360px; box-shadow:0 12px 40px rgba(0,0,0,.25); }
+  .modal h3 { font-size:18px; font-weight:800; color:var(--error); margin-bottom:6px; }
+  .modal p { font-size:13.5px; color:var(--sub); line-height:1.5; margin-bottom:16px; }
+  .modal label { display:block; font-size:12.5px; font-weight:700; color:var(--sub); margin-bottom:6px; }
+  .code-input { width:100%; font-size:24px; font-weight:800; letter-spacing:10px; text-align:center; padding:12px; border:2px solid #ddd; border-radius:10px; outline:none; }
+  .code-input:focus { border-color:var(--primary); }
+  .modal-msg { min-height:18px; font-size:13px; font-weight:700; margin:10px 0 4px; text-align:center; }
+  .modal-msg.err { color:var(--error); }
+  .modal-msg.ok { color:var(--success); }
+  .modal-actions { display:flex; gap:10px; margin-top:14px; }
+  .modal-actions .btn { flex:1; justify-content:center; text-align:center; }
   .total { font-size:14px; color:var(--sub); display:flex; align-items:center; gap:8px; }
   .total b { font-size:20px; color:var(--primary); }
   .card { background:var(--card); border-radius:14px; padding:18px 20px; margin-bottom:16px; box-shadow:0 2px 8px rgba(0,0,0,0.05); }
@@ -46,19 +64,90 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>📊 설문 통계 대시보드</h1>
+    <h1 style="display:flex; align-items:center; gap:9px;">
+      <svg class="ic-lg" viewBox="0 0 24 24" fill="none" style="color:var(--primary)">
+        <path d="M3 21h18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+        <rect x="4.8" y="11" width="3.6" height="7" rx="1" fill="currentColor"/>
+        <rect x="10.2" y="5.5" width="3.6" height="12.5" rx="1" fill="currentColor"/>
+        <rect x="15.6" y="8.5" width="3.6" height="9.5" rx="1" fill="currentColor"/>
+      </svg>
+      설문 통계 대시보드
+    </h1>
     <div class="sub">딥보이스 보이스피싱 경고 UX 연구 · 실시간 집계</div>
   </header>
 
   <div class="toolbar">
-    <span class="total">총 응답 <b id="total">0</b> 건</span>
+    <span class="total">실험 참여 <b id="expTotal">0</b> 명 · 데모 <b id="total">0</b> 건</span>
     <span style="flex:1"></span>
-    <button class="btn ghost" onclick="load()">🔄 새로고침</button>
-    <a class="btn" href="/api/surveys.csv">⬇ CSV 다운로드</a>
+    <a class="btn" href="/api/experiment.csv">
+      <svg class="ic" viewBox="0 0 24 24" fill="none">
+        <path d="M12 4v10M7.6 9.8 12 14.2 16.4 9.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5 19.2h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      </svg>
+      실험 데이터 CSV (논문용)
+    </a>
+    <button class="btn ghost" onclick="load()">
+      <svg class="ic" viewBox="0 0 24 24" fill="none">
+        <path d="M4.8 12a7.2 7.2 0 0 1 12.2-5.2L19 8.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M19 4.2v4.4h-4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M19.2 12a7.2 7.2 0 0 1-12.2 5.2L5 15.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5 19.8v-4.4h4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      새로고침
+    </button>
+    <a class="btn ghost" href="/api/surveys.csv">
+      <svg class="ic" viewBox="0 0 24 24" fill="none">
+        <path d="M12 4v10M7.6 9.8 12 14.2 16.4 9.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5 19.2h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      </svg>
+      데모 CSV
+    </a>
+    <button class="btn danger" onclick="openDeleteModal()">
+      <svg class="ic" viewBox="0 0 24 24" fill="none">
+        <path d="M4 7h16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+        <path d="M9 7V5.6A1.6 1.6 0 0 1 10.6 4h2.8A1.6 1.6 0 0 1 15 5.6V7" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M6.2 7l.9 12a2 2 0 0 0 2 1.9h5.8a2 2 0 0 0 2-1.9l.9-12" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+      기존 설문자 내용 삭제
+    </button>
   </div>
 
+  <!-- 실험 데이터 (논문용 · 피험자내 4패턴) -->
+  <div class="section-head" style="display:flex; align-items:center; gap:8px; margin:6px 2px 10px;">
+    <span style="font-size:17px; font-weight:800; color:var(--primary);">🧪 실험 데이터 <span style="font-size:13px; font-weight:600; color:var(--muted);">(논문용 · 피험자내 4패턴)</span></span>
+  </div>
+  <div id="exp-content"></div>
+
+  <!-- 데모 체험 데이터 (참고용) -->
+  <div class="section-head" style="display:flex; align-items:center; gap:8px; margin:26px 2px 10px; padding-top:14px; border-top:2px dashed #dde5e3;">
+    <span style="font-size:17px; font-weight:800; color:var(--sub);">🎮 데모 체험 데이터 <span style="font-size:13px; font-weight:600; color:var(--muted);">(자유 체험 · 참고용)</span></span>
+  </div>
   <div id="content"></div>
   <div class="updated" id="updated"></div>
+</div>
+
+<!-- 관리자 인증 후 데이터 삭제 모달 -->
+<div class="modal-overlay" id="deleteModal" onclick="if(event.target===this)closeDeleteModal()">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 style="display:flex; align-items:center; gap:7px;">
+      <svg viewBox="0 0 24 24" fill="none" style="width:21px;height:21px;flex-shrink:0;color:var(--error)">
+        <path d="M12 4 21 19.5H3L12 4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M12 10v3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="12" cy="16.4" r="1.1" fill="currentColor"/>
+      </svg>
+      설문 데이터 전체 삭제
+    </h3>
+    <p>수집된 데이터 <b id="modalCount">0</b> 를 <b>모두 영구 삭제</b>합니다.<br>관리자 인증코드 4자리를 입력하면 아래 <b>삭제</b> 버튼이 활성화됩니다. 버튼을 눌러야 삭제됩니다.<br><span style="color:var(--muted);font-size:12px;">(백업 로그는 보존되어 복구 가능합니다)</span></p>
+    <label for="codeInput">관리자 인증코드</label>
+    <input id="codeInput" class="code-input" type="password" inputmode="numeric" maxlength="4"
+           autocomplete="off" placeholder="••••" oninput="onCodeInput(this)" />
+    <div class="modal-msg" id="modalMsg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeDeleteModal()">취소</button>
+      <button class="btn danger solid" id="confirmDeleteBtn" onclick="confirmDelete()" disabled>삭제</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -97,7 +186,80 @@ function patternCards(byPattern) {
   }).join('');
 }
 
+const EXP_PNAME = { A:'A · 단순 텍스트', B:'B · 컬러·아이콘', C:'C · 멀티모달', D:'D · 행동 유도형' };
+function fmt(v, suffix='') { return (v === null || v === undefined) ? '—' : (v + suffix); }
+
+async function loadExp() {
+  let data;
+  try { data = await (await fetch('/api/experiment/stats')).json(); }
+  catch { document.getElementById('exp-content').innerHTML = '<div class="card"><div class="empty">실험 데이터를 불러올 수 없습니다.</div></div>'; return; }
+  document.getElementById('expTotal').textContent = data.participants || 0;
+
+  if (!data.participants) {
+    document.getElementById('exp-content').innerHTML = '<div class="card"><div class="empty">아직 완료된 실험 참여자가 없습니다.<br>“동의하고 실험 시작”으로 4패턴을 모두 마친 참여자가 여기에 집계됩니다.</div></div>';
+    return;
+  }
+
+  const P = ['A','B','C','D'];
+  const rows = P.map(p => {
+    const d = data.byPattern[p] || {};
+    return `<tr>
+      <td class="label">${EXP_PNAME[p]}</td>
+      <td>${fmt(d.n)}</td>
+      <td><b style="color:var(--primary)">${fmt(d.recogSufficient)}</b></td>
+      <td><b style="color:var(--primary)">${fmt(d.promptedHangup)}</b></td>
+      <td>${fmt(d.timingOk)}</td>
+      <td>${fmt(d.trust)}</td>
+      <td>${fmt(d.comprehension)}</td>
+      <td>${fmt(d.usability)}</td>
+      <td>${fmt(d.intrusive)}</td>
+      <td>${fmt(d.satisfaction)}</td>
+    </tr>`;
+  }).join('');
+  const C = data.comparison || {};
+  const cmpRows = [['습관화(반복 시 무시 경향)','habituation'],['가독성(글자·대비)','readability'],['햅틱 적절성','hapticOk'],['신뢰도 점수 도움','confScoreHelpful']]
+    .map(([lbl,k]) => `<tr><td class="label">${lbl}</td><td>${fmt(C[k])}</td></tr>`).join('');
+
+  const html = `
+    <div class="card">
+      <h2>패턴별 핵심 지표 (완료 ${data.participants}명 · 진행중 ${data.inProgress||0}명 · ${data.calls} 통화)</h2>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th style="text-align:left">패턴</th><th>n</th>
+          <th>인식충분</th><th>끊기유도</th><th>속도적절</th>
+          <th>신뢰</th><th>이해</th><th>사용성</th><th>방해(역)</th><th>만족</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      </div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:8px;">모든 값은 UI당 1회 평가의 5점 평균(연구 핵심 DV). <b>인식충분</b>=경고만으로 딥보이스 인식, <b>끊기유도</b>=경고 보고 끊어야겠다고 느낌. ANOVA용 원자료는 “실험 CSV”로 내려받으세요.</div>
+      <div style="font-size:11px; color:var(--muted); margin-top:4px;">각 UI에서 4개 시나리오(교통사고·검찰·의료·금융)를 모두 동일하게 경험하므로 시나리오 비교는 생략합니다.</div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>패턴별 인식충분 (경고만으로 딥보이스 인식, 5점)</h2>${barChart(Object.fromEntries(P.map(p => [p, (data.byPattern[p]||{}).recogSufficient ?? 0])))}</div>
+      <div class="card"><h2>패턴별 끊기유도 (경고 보고 끊어야겠다, 5점)</h2>${barChart(Object.fromEntries(P.map(p => [p, (data.byPattern[p]||{}).promptedHangup ?? 0])))}</div>
+    </div>
+
+    <div class="card">
+      <h2>종합 비교 설문 (최종 · 16통화 모두 경험 후, ${C.n||0}명)</h2>
+      <div class="grid2">
+        <div><div style="font-size:13px;font-weight:700;color:var(--sub);margin-bottom:6px;">가장 효과적인 경고 (투표)</div>${barChart(Object.fromEntries(P.map(p => [EXP_PNAME[p], (C.mostEffective||{})[p] ?? 0])))}</div>
+        <div><div style="font-size:13px;font-weight:700;color:var(--sub);margin-bottom:6px;">가장 거슬린 경고 (투표)</div>${barChart(Object.fromEntries(P.map(p => [EXP_PNAME[p], (C.mostAnnoying||{})[p] ?? 0])))}</div>
+      </div>
+      <div style="overflow-x:auto;margin-top:10px"><table>
+        <thead><tr><th style="text-align:left">최종 평가 항목 (5점 평균)</th><th>점수</th></tr></thead>
+        <tbody>${cmpRows}</tbody>
+      </table></div>
+    </div>
+
+    <div class="card"><h2>연령대별 참여자 수</h2>${barChart(data.byAge)}</div>
+  `;
+  document.getElementById('exp-content').innerHTML = html;
+}
+
 async function load() {
+  loadExp();
   const res = await fetch('/api/surveys/stats');
   const { stats, likertLabels } = await res.json();
   LABELS = likertLabels;
@@ -146,7 +308,71 @@ async function load() {
 }
 
 load();
-setInterval(load, 30000); // 30초마다 자동 갱신
+let autoRefresh = setInterval(load, 30000); // 30초마다 자동 갱신
+
+// ─── 관리자 삭제 모달 ───────────────────────────────────────────────
+function openDeleteModal() {
+  const exp = document.getElementById('expTotal').textContent;
+  const demo = document.getElementById('total').textContent;
+  document.getElementById('modalCount').textContent = `실험 ${exp}명 + 데모 ${demo}건`;
+  document.getElementById('modalMsg').textContent = '';
+  document.getElementById('modalMsg').className = 'modal-msg';
+  const input = document.getElementById('codeInput');
+  input.value = '';
+  document.getElementById('confirmDeleteBtn').disabled = true;
+  document.getElementById('deleteModal').classList.add('open');
+  clearInterval(autoRefresh); // 입력 중 자동 새로고침 일시정지
+  setTimeout(() => input.focus(), 50);
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('open');
+  autoRefresh = setInterval(load, 30000); // 자동 새로고침 재개
+}
+
+function onCodeInput(el) {
+  el.value = el.value.replace(/[^0-9]/g, '').slice(0, 4); // 숫자만 4자리
+  // 4자리 입력 시 '삭제' 버튼만 활성화 — 자동 삭제하지 않음(관리자가 직접 눌러야 삭제)
+  document.getElementById('confirmDeleteBtn').disabled = el.value.length !== 4;
+  const msg = document.getElementById('modalMsg');
+  msg.textContent = ''; msg.className = 'modal-msg';
+}
+
+async function confirmDelete() {
+  const btn = document.getElementById('confirmDeleteBtn');
+  const code = document.getElementById('codeInput').value;
+  const msg = document.getElementById('modalMsg');
+  if (code.length !== 4) return;
+  btn.disabled = true; msg.textContent = '삭제 중…'; msg.className = 'modal-msg';
+  try {
+    const opt = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) };
+    // 실험 데이터 + 데모 설문 둘 다 삭제
+    const [eRes, sRes] = await Promise.all([
+      fetch('/api/experiment/clear', opt),
+      fetch('/api/surveys/clear', opt),
+    ]);
+    const eData = await eRes.json();
+    const sData = await sRes.json();
+    if (eRes.ok && eData.ok && sRes.ok && sData.ok) {
+      msg.textContent = `✓ 실험 ${eData.deleted}명 + 데모 ${sData.deleted}건 삭제 완료`;
+      msg.className = 'modal-msg ok';
+      setTimeout(() => { closeDeleteModal(); load(); }, 900);
+    } else {
+      msg.textContent = (eData.error || sData.error) || '삭제에 실패했습니다.';
+      msg.className = 'modal-msg err';
+      document.getElementById('codeInput').value = '';
+      btn.disabled = true;
+    }
+  } catch (e) {
+    msg.textContent = '서버 연결 오류가 발생했습니다.';
+    msg.className = 'modal-msg err';
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('deleteModal').classList.contains('open')) closeDeleteModal();
+});
 </script>
 </body>
 </html>

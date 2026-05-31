@@ -5,11 +5,32 @@ import {
   IcPerson, IcWarningTri, IcWarningTriColor, IcVibrate, IcSound,
   IcPhoneEnd, IcPhoneUp, IcMic, IcMicOff, IcKeypad, IcSpeaker,
   IcAddPerson, IcVideo, IcRecording, IcShield, IcQuestion,
+  IcBook, IcLock, IcClipboard, IcSearch, IcAlert,
 } from './icons';
 import Survey, { type SurveyContext } from './Survey';
+import {
+  EXP_SCENARIOS, EXP_WARN_AT_SEC, EXP_MAX_DURATION_SEC,
+  ExpConsent, ExpDemographicsForm, ExpUiEval, ExpFinalSurvey, ExpDone,
+  type ExpDemographics, type CallRecord, type UiEvaluation, type ExpComparison, type ExpScenarioId,
+} from './Experiment';
 
 type Pattern    = 'A' | 'B' | 'C' | 'D';
-type Phase      = 'setup' | 'ringing' | 'calling' | 'ended' | 'survey';
+type Phase      = 'setup' | 'ringing' | 'calling' | 'ended' | 'survey'
+  | 'exp-consent' | 'exp-demographics' | 'exp-call-recognition' | 'exp-ui-eval' | 'exp-final' | 'exp-done';
+
+// 실험 세션 — 참여자 1명의 진행 상태(완전요인: 4 UI × 4 시나리오 = 16통화)
+interface ExpSession {
+  participantId: string;
+  seq: number;
+  order: Pattern[];                 // UI 블록 순서 (4)
+  scenarioOrders: ExpScenarioId[][]; // 블록별 시나리오 순서 (4×4)
+  demographics: ExpDemographics;
+  callRecords: CallRecord[];
+  uiEvaluations: UiEvaluation[];
+}
+function order_at(session: ExpSession | null, i: number): Pattern {
+  return session && session.order[i] ? session.order[i] : 'A';
+}
 type ScenarioId = 'accident' | 'prosecutor' | 'medical' | 'bank';
 
 interface Message {
@@ -419,8 +440,8 @@ function CallerHeader({ scenarioInfo, duration, isSpeaking, isLoading, mini = fa
 }
 
 // ─── Call controls (design spec) ─────────────────────────────────────────────
-function CallControls({ onHangup, onMute, hidden = false }: {
-  onHangup: () => void; onMute: () => void; hidden?: boolean;
+function CallControls({ onHangup, onMute, hidden = false, readonly = false }: {
+  onHangup: () => void; onMute: () => void; hidden?: boolean; readonly?: boolean;
 }) {
   const [muted, setMuted] = useState(false);
   if (hidden) return null;
@@ -447,23 +468,26 @@ function CallControls({ onHangup, onMute, hidden = false }: {
   return (
     <div style={{ paddingBottom: 4 }}>
       {/* 6-chip grid — 2 rows × 3 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', rowGap: 18, justifyItems: 'center', marginBottom: 22 }}>
-        {chip(muted ? IcMicOff : IcMic, '음소거', () => { setMuted(m => !m); onMute(); }, muted)}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', rowGap: 18, justifyItems: 'center', marginBottom: readonly ? 4 : 22 }}>
+        {/* readonly(실험모드): 아이콘만 표시, 기능 없음 */}
+        {chip(muted ? IcMicOff : IcMic, '음소거', readonly ? undefined : () => { setMuted(m => !m); onMute(); }, muted)}
         {chip(IcKeypad, '키패드')}
         {chip(IcSpeaker, '스피커')}
         {chip(IcAddPerson, '통화 추가')}
         {chip(IcVideo, '영상통화')}
         {chip(IcRecording, '녹음')}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <button onClick={onHangup} aria-label="통화 종료" className="dv-btn" style={{
-          width: 66, height: 66, borderRadius: '50%', background: '#DC3545', border: 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-          boxShadow: '0 8px 20px rgba(220,53,69,0.40)',
-        }}>
-          <IcPhoneEnd size={30} color="#fff" />
-        </button>
-      </div>
+      {!readonly && (
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <button onClick={onHangup} aria-label="통화 종료" className="dv-btn" style={{
+            width: 66, height: 66, borderRadius: '50%', background: '#DC3545', border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            boxShadow: '0 8px 20px rgba(220,53,69,0.40)',
+          }}>
+            <IcPhoneEnd size={30} color="#fff" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -472,7 +496,7 @@ function CallControls({ onHangup, onMute, hidden = false }: {
 export default function App() {
   const [pattern, setPattern]   = useState<Pattern>('A');
   const [scenario, setScenario] = useState<ScenarioId>('accident');
-  const [phase, setPhase]       = useState<Phase>('setup');
+  const [phase, setPhase]       = useState<Phase>('exp-consent');
   const [duration, setDuration] = useState(0);
   const [warningVisible, setWarningVisible] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -485,15 +509,36 @@ export default function App() {
   const [reverifyLoading, setReverifyLoading] = useState(false);
   const [hungUp, setHungUp]   = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [shake, setShake] = useState(false); // 진동 대체 화면 흔들림(멀티모달·행동유도형)
+  const [micStatus, setMicStatus] = useState<string>(''); // 마이크 인식 상태/에러 안내
   const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
   // 마지막 통화 결과 — 설문에 함께 저장
   const [surveyContext, setSurveyContext] = useState<SurveyContext | null>(null);
+
+  // ── 실험(완전요인) 상태 ──
+  const [expSession, setExpSession]   = useState<ExpSession | null>(null);
+  const [blockIndex, setBlockIndex]   = useState(0);   // 현재 UI 블록 0..3
+  const [scenarioIdx, setScenarioIdx] = useState(0);   // 블록 내 시나리오 0..3
+  const [scriptDone, setScriptDone] = useState(false); // 대본(마지막 음성)까지 재생 완료
+  const [callNonce, setCallNonce] = useState(0); // 통화마다 증가 — 같은 'calling' 단계에서도 타이머 재시작
+  const [expSubmitting, setExpSubmitting] = useState(false);
+  const expMode = expSession !== null;
+  const expTerminatedRef = useRef<boolean>(false); // 이번 통화에서 종료를 시도했는지
+  const expEndedRef = useRef<boolean>(false);      // 통화 종료 중복 방지
+  const reactionMsRef = useRef<number | null>(null); // 경고→첫 반응 시간(ms); 무반응이면 null 유지
+  const blockIndexRef = useRef<number>(0);          // 비동기 종료에서 최신 블록 index
+  const scenarioIdxRef = useRef<number>(0);         // 비동기 종료에서 최신 시나리오 index
+  const callTokenRef = useRef<number>(0);           // 통화 토큰 — 대본 순차재생 안전 가드(겹침·이월 방지)
+  const expSessionRef = useRef<ExpSession | null>(null); // 콜백에서 최신 세션 동기 참조
+  const durationRef = useRef<number>(0);            // 종료 시점 통화 길이 동기 참조
+  const expScenarioRef = useRef<ExpScenarioId>('accident'); // 현재 통화의 시나리오
 
   const warningTriggerRef  = useRef<number | null>(null);
   const timerRef           = useRef<ReturnType<typeof setInterval> | null>(null);
   const chatEndRef         = useRef<HTMLDivElement | null>(null);
   const stopRingtoneRef    = useRef<(() => void) | null>(null);
   const sessionIdRef       = useRef<number>(0);
+  const recognitionRef     = useRef<any>(null);
   // 경고가 이미 발동됐는지 동기 플래그 — async state보다 먼저 체크해 중복 실행 방지
   const warningFiredRef    = useRef<boolean>(false);
   // messages 최신값을 ref로 유지 — warning effect deps에서 messages 제거용
@@ -519,50 +564,73 @@ export default function App() {
       timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [phase, hungUp]);
+  }, [phase, hungUp, callNonce]); // callNonce: 통화 전환 시(같은 calling 단계) 타이머 재시작
 
+  useEffect(() => { durationRef.current = duration; }, [duration]);
+
+  // 실험모드: 통화가 최대 길이에 도달하면 자동 종료 (대본은 순차 재생)
+  useEffect(() => {
+    if (!expMode || phase !== 'calling') return;
+    if (duration >= EXP_MAX_DURATION_SEC) endExpCall(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duration, expMode, phase]);
+
+  // 경고 트리거 시점(초) — 데모·실험 공통 5초
+  const warnAtSec = expMode ? EXP_WARN_AT_SEC : 5;
   useEffect(() => {
     // warningFiredRef: async state보다 먼저 체크 → 중복 실행 완전 차단
-    if (duration === 5 && !warningFiredRef.current && phase === 'calling') {
+    if (duration === warnAtSec && !warningFiredRef.current && phase === 'calling') {
       warningFiredRef.current = true;
       setWarningVisible(true);
       warningTriggerRef.current = Date.now();
       if (pattern === 'C' || pattern === 'D') {
         playBeep(1200);
         triggerHaptic([200, 100, 200, 100, 200, 100, 200]);
+        // 진동 미지원 기기 대체: 화면 흔들림 (~1초)
+        setShake(true);
+        window.setTimeout(() => setShake(false), 1050);
       }
-      // messagesRef로 현재 대화 맥락을 읽어 reverify 질문 생성
-      setReverifyLoading(true);
-      fetch('/api/reverify-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenarioId: scenario, messages: messagesRef.current }),
-      })
-        .then(r => r.json())
-        .then(d => { setReverifyQuestion(d.question || ''); setReverifyLoading(false); })
-        .catch(() => { setReverifyLoading(false); });
+      if (expMode) {
+        // 실험모드: 현재 시나리오의 고정 재확인 질문(표준 자극) — AI 호출 없음
+        setReverifyQuestion(EXP_SCENARIOS[scenario as ExpScenarioId].reverifyQuestion);
+        setReverifyLoading(false);
+      } else {
+        // 데모모드: 대화 맥락으로 AI 재확인 질문 생성
+        setReverifyLoading(true);
+        fetch('/api/reverify-question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenarioId: scenario, messages: messagesRef.current }),
+        })
+          .then(r => r.json())
+          .then(d => { setReverifyQuestion(d.question || ''); setReverifyLoading(false); })
+          .catch(() => { setReverifyLoading(false); });
+      }
     }
   // messages·warningVisible 제거: messagesRef·warningFiredRef로 대체
-  }, [duration, phase, pattern, playBeep, scenario]);
+  }, [duration, phase, pattern, playBeep, scenario, warnAtSec, expMode]);
 
   const recordReactionTime = useCallback(() => {
-    if (warningTriggerRef.current && reactionTime === null) {
-      setReactionTime(Date.now() - warningTriggerRef.current);
+    if (warningTriggerRef.current && reactionMsRef.current === null) {
+      const ms = Date.now() - warningTriggerRef.current;
+      reactionMsRef.current = ms;
+      setReactionTime(ms);
     }
-  }, [reactionTime]);
+  }, []);
 
   const addAssistantMessage = useCallback((text: string) => {
     setMessages(prev => [...prev, { role: 'assistant', content: text, ts: Date.now() }]);
   }, []);
 
-  const speakAsAttacker = useCallback((text: string, onDone?: () => void) => {
+  const speakAsAttacker = useCallback((text: string, onDone?: () => void, scenarioId?: string) => {
+    cancelTTS(); // 이전 발화 중단 — 목소리 겹침 방지(특히 실험모드 다중 대본)
     setIsSpeaking(true);
     speak(text, {
-      rate: 1.1, pitch: 0.92, scenarioId: scenario,
+      rate: 1.1, pitch: 0.92, scenarioId: scenarioId ?? scenario, // 명시 전달 우선(stale 방지)
       onStart: () => setIsSpeaking(true),
       onEnd: () => { setIsSpeaking(false); onDone?.(); },
     });
-  }, [speak, scenario]);
+  }, [speak, scenario, cancelTTS]);
 
   const startCall = useCallback(() => {
     stopRingtoneRef.current?.();
@@ -584,7 +652,160 @@ export default function App() {
     stopRingtoneRef.current = cancelRingtone;
   }, [playRingtone, speakAsAttacker, scenario]);
 
+  // ── 실험: 고정 대본 순차 재생 — 토큰 가드로 통화 이월·겹침 방지(견고) ──
+  const playCallLines = useCallback((token: number, lines: string[], idx: number, scenarioId: string) => {
+    if (token !== callTokenRef.current) return; // 다음 통화로 넘어갔으면 중단
+    if (idx >= lines.length) {
+      if (token === callTokenRef.current) setScriptDone(true); // 마지막 음성까지 끝남 → 평가 진행 가능
+      return;
+    }
+    addAssistantMessage(lines[idx]);
+    speakAsAttacker(lines[idx], () => {
+      if (token !== callTokenRef.current) return;
+      window.setTimeout(() => playCallLines(token, lines, idx + 1, scenarioId), 600);
+    }, scenarioId); // 시나리오를 명시 전달 → 통화마다 올바른 음성
+  }, [addAssistantMessage, speakAsAttacker]);
+
+  // 진행 중 점진 저장 — 중도 이탈해도 서버에 보존(fire-and-forget)
+  const saveProgress = useCallback((session: ExpSession) => {
+    fetch('/api/experiment/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        participantId: session.participantId, seq: session.seq, order: session.order,
+        scenarioOrders: session.scenarioOrders, demographics: session.demographics,
+        callRecords: session.callRecords, uiEvaluations: session.uiEvaluations,
+      }),
+    }).catch(() => {});
+  }, []);
+
+  // ── 실험: 통화 시작 (블록=UI, 시나리오 — 고정 스크립트, AI 없음) ──
+  const startExpCall = useCallback((blockIdx: number, scenIdx: number) => {
+    const session = expSessionRef.current;
+    if (!session) return;
+    const pat = session.order[blockIdx];
+    const scn = session.scenarioOrders[blockIdx][scenIdx];
+    sessionIdRef.current += 1;
+    warningFiredRef.current = false;
+    expEndedRef.current = false;
+    expTerminatedRef.current = false;
+    reactionMsRef.current = null;
+    blockIndexRef.current = blockIdx;
+    scenarioIdxRef.current = scenIdx;
+    expScenarioRef.current = scn;
+    setBlockIndex(blockIdx); setScenarioIdx(scenIdx);
+    setPattern(pat);
+    setScenario(scn as ScenarioId); // 시나리오별 발신자 표시
+    setDuration(0); setWarningVisible(false); setScriptDone(false);
+    setMessages([]); setHungUp(false); setReactionTime(null);
+    setReverifyOpen(false); setReverifyQuestion(''); setReverifyLoading(false);
+    warningTriggerRef.current = null;
+    cancelTTS();
+    const token = ++callTokenRef.current;
+    setPhase('calling');
+    setCallNonce(n => n + 1); // 같은 'calling' 단계여도 duration 타이머·경고 재시작
+    window.setTimeout(() => playCallLines(token, EXP_SCENARIOS[scn].lines, 0, scn), 350);
+  }, [playCallLines, cancelTTS]);
+
+  // ── 실험: 통화 종료 → 객관 지표(CallRecord) 기록 후 바로 다음 통화 / UI 평가로 ──
+  const endExpCall = useCallback((terminated: boolean) => {
+    if (expEndedRef.current) return; // 중복(자동종료+수동종료) 방지
+    expEndedRef.current = true;
+    if (terminated) expTerminatedRef.current = true;
+    callTokenRef.current += 1; // 진행 중 대본 재생 중단
+    cancelTTS();
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsSpeaking(false);
+    const session = expSessionRef.current;
+    if (!session) return;
+    const rec: CallRecord = {
+      blockOrder: blockIndexRef.current + 1,
+      pattern: order_at(session, blockIndexRef.current),
+      scenarioPos: scenarioIdxRef.current + 1,
+      scenario: expScenarioRef.current,
+      terminationAttempted: expTerminatedRef.current ? 1 : 0,
+      reactionTimeSec: reactionMsRef.current != null ? +(reactionMsRef.current / 1000).toFixed(2) : null,
+      durationSec: durationRef.current,
+    };
+    const updated: ExpSession = { ...session, callRecords: [...session.callRecords, rec] };
+    expSessionRef.current = updated;
+    setExpSession(updated);
+    saveProgress(updated);
+    const nextScen = scenarioIdxRef.current + 1;
+    if (nextScen < session.scenarioOrders[blockIndexRef.current].length) {
+      startExpCall(blockIndexRef.current, nextScen); // 같은 UI, 다음 시나리오
+    } else {
+      setPhase('exp-ui-eval'); // 4 시나리오 끝 → 이 UI 평가
+    }
+  }, [cancelTTS, saveProgress, startExpCall]);
+
+  // ── 실험: 등록(enroll) + 첫 통화 시작 ──
+  const enrollAndStart = useCallback(async (demographics: ExpDemographics) => {
+    try {
+      const res = await fetch('/api/experiment/enroll', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ageGroup: demographics.ageGroup }),
+      });
+      const d = await res.json();
+      const order: Pattern[] = (d && Array.isArray(d.order)) ? d.order : ['A', 'B', 'C', 'D'];
+      const FIXED: ExpScenarioId[] = ['accident', 'prosecutor', 'medical', 'bank'];
+      const scenarioOrders: ExpScenarioId[][] = (d && Array.isArray(d.scenarioOrders)) ? d.scenarioOrders
+        : [FIXED, FIXED, FIXED, FIXED];
+      const session: ExpSession = { participantId: d.participantId, seq: d.seq, order, scenarioOrders, demographics, callRecords: [], uiEvaluations: [] };
+      expSessionRef.current = session;
+      setExpSession(session);
+      startExpCall(0, 0);
+    } catch {
+      alert('서버 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+  }, [startExpCall]);
+
+  // ── 실험: UI(경고 방식) 평가 완료 → 다음 블록 또는 종합설문 ──
+  const onUiEvalDone = useCallback((s: { recogSufficient: number; promptedHangup: number; timingOk: number; trust: number; comprehension: number; usability: number; intrusive: number; satisfaction: number }) => {
+    const session = expSessionRef.current;
+    if (!session) return;
+    const ev: UiEvaluation = { blockOrder: blockIndexRef.current + 1, pattern: order_at(session, blockIndexRef.current), ...s };
+    const updated: ExpSession = { ...session, uiEvaluations: [...session.uiEvaluations, ev] };
+    expSessionRef.current = updated;
+    setExpSession(updated);
+    saveProgress(updated); // UI 평가마다 즉시 저장
+    const nextBlock = blockIndexRef.current + 1;
+    if (nextBlock < session.order.length) startExpCall(nextBlock, 0); // 다음 UI, 첫 시나리오
+    else setPhase('exp-final');
+  }, [startExpCall, saveProgress]);
+
+  // ── 실험: 종합 비교 설문 완료 → 서버 제출 ──
+  const onFinalDone = useCallback(async (payload: { comparison: ExpComparison; nextActions: string[]; improve: string; strategy: string }) => {
+    const session = expSessionRef.current;
+    if (!session) return;
+    setExpSubmitting(true);
+    try {
+      await fetch('/api/experiment/submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: session.participantId, seq: session.seq, order: session.order,
+          scenarioOrders: session.scenarioOrders,
+          demographics: session.demographics, callRecords: session.callRecords, uiEvaluations: session.uiEvaluations,
+          comparison: payload.comparison,
+          free: { nextActions: payload.nextActions, improve: payload.improve, strategy: payload.strategy },
+        }),
+      });
+      setPhase('exp-done');
+    } catch {
+      alert('제출에 실패했습니다. 네트워크를 확인하고 다시 시도해 주세요.');
+    } finally {
+      setExpSubmitting(false);
+    }
+  }, []);
+
+  const restartExp = useCallback(() => {
+    expSessionRef.current = null;
+    setExpSession(null); setBlockIndex(0); setScenarioIdx(0);
+    blockIndexRef.current = 0; scenarioIdxRef.current = 0;
+    setPhase('exp-consent');
+  }, []);
+
   const handleHangup = useCallback(() => {
+    if (expSessionRef.current) { recordReactionTime(); endExpCall(true); return; }
     recordReactionTime(); cancelTTS();
     if (timerRef.current) clearInterval(timerRef.current);
     // 통화 결과를 설문 컨텍스트로 저장 (반응시간은 ref에서 직접 계산)
@@ -598,7 +819,7 @@ export default function App() {
       msgCount: messages.filter(m => m.role === 'user').length,
     });
     setHungUp(true); setPhase('ended'); setIsSpeaking(false);
-  }, [recordReactionTime, cancelTTS, reactionTime, scenario, pattern, duration, messages]);
+  }, [recordReactionTime, cancelTTS, reactionTime, scenario, pattern, duration, messages, endExpCall]);
 
   const handleReverify = useCallback(() => {
     recordReactionTime(); setReverifyOpen(true);
@@ -624,18 +845,85 @@ export default function App() {
   }, [userInput, isLoading, hungUp, messages, scenario, recordReactionTime, addAssistantMessage, speakAsAttacker]);
 
   const startListening = useCallback(() => {
+    // 이미 듣는 중이면 토글로 중지
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (_) {}
+      return;
+    }
     const SRA = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SRA) return alert('Chrome을 사용해주세요.');
+    if (!SRA) {
+      setMicStatus('⚠ 이 브라우저는 음성 인식을 지원하지 않습니다. Chrome·Edge에서 열어주세요.');
+      return;
+    }
+    // 보안 컨텍스트(HTTPS/localhost)가 아니면 마이크 자체가 차단됨
+    if (!window.isSecureContext) {
+      setMicStatus('⚠ 보안 연결(HTTPS)에서만 마이크가 동작합니다. https:// 주소로 접속해 주세요.');
+      return;
+    }
+    // 공격자 음성이 재생 중이면 멈추고 듣기 시작 (마이크가 TTS를 받아쓰지 않도록)
+    cancelTTS();
+    setIsSpeaking(false);
     const recognition = new SRA();
-    recognition.lang = 'ko-KR'; recognition.interimResults = false;
+    recognition.lang = 'ko-KR';
+    recognition.interimResults = true;   // 말하는 즉시 입력창에 텍스트 표시
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    let finalText = '';
+    let gotAnyResult = false;
+    setMicStatus('🎙 마이크 켜는 중…');
+
+    recognition.onstart = () => setMicStatus('🎙 듣는 중… 말씀하세요');
+    recognition.onspeechstart = () => setMicStatus('🎙 음성 감지됨…');
     recognition.onresult = (e: any) => {
-      const t = e.results[0][0].transcript;
-      setUserInput(t); setIsListening(false); handleSend(t);
+      gotAnyResult = true;
+      let interim = '';
+      finalText = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalText += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      setUserInput(finalText || interim); // 실시간 받아쓰기
+      setMicStatus(finalText ? '' : '✍️ 받아쓰는 중…');
+      recordReactionTime();
     };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend   = () => setIsListening(false);
-    recognition.start(); setIsListening(true);
-  }, [handleSend]);
+    recognition.onerror = (e: any) => {
+      const err = e?.error;
+      const MSG: Record<string, string> = {
+        'not-allowed': '⚠ 마이크 권한이 차단됨 → 주소창 왼쪽 🔒 → 마이크 → "허용" 후 새로고침',
+        'service-not-allowed': '⚠ 마이크 권한이 차단됨 → 주소창 왼쪽 🔒 → 마이크 → "허용" 후 새로고침',
+        'audio-capture': '⚠ 마이크를 찾을 수 없습니다. 마이크 연결을 확인해 주세요.',
+        'network': '⚠ 음성 인식 서버에 연결할 수 없습니다(network). 인터넷 연결을 확인해 주세요.',
+        'no-speech': '음성이 감지되지 않았어요. 마이크 버튼을 다시 눌러 말씀해 주세요.',
+        'aborted': '',
+      };
+      setMicStatus(MSG[err] ?? `⚠ 음성 인식 오류: ${err}`);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      const text = finalText.trim();
+      if (text) {
+        setMicStatus('');
+        handleSend(text); // 말이 끝나면 자동 전송
+      } else if (!gotAnyResult) {
+        // 결과가 한 번도 안 왔는데 에러 메시지도 없으면 일반 안내
+        setMicStatus((s) => s || '인식된 음성이 없습니다. 다시 시도해 주세요.');
+      }
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+    } catch (_) {
+      // 이미 시작된 인스턴스가 있을 때의 InvalidStateError 방지
+      setIsListening(false);
+      recognitionRef.current = null;
+      setMicStatus('');
+    }
+  }, [handleSend, recordReactionTime, cancelTTS]);
 
   const resetExperiment = useCallback(() => {
     // 링톤 타임아웃 체인 즉시 중단
@@ -645,14 +933,41 @@ export default function App() {
     warningFiredRef.current = false; // 리셋 — 다음 통화에서 경고 재발동 허용
 
     cancelTTS(); if (timerRef.current) clearInterval(timerRef.current);
+    try { recognitionRef.current?.stop(); } catch (_) {}
+    recognitionRef.current = null;
     setPhase('setup'); setDuration(0); setWarningVisible(false); setMessages([]);
     setHungUp(false); setReactionTime(null); setReverifyOpen(false);
     setReverifyQuestion(''); setReverifyLoading(false);
     setIsSpeaking(false); setIsLoading(false);
+    setIsListening(false); setMicStatus('');
   }, [cancelTTS]);
 
   const scenarioInfo = SCENARIO_UI[scenario];
   const isPatternD   = pattern === 'D';
+
+  // ── 실험(피험자내) 화면들 ──
+  if (phase === 'exp-consent') {
+    return <ExpConsent onAgree={() => setPhase('exp-demographics')} onDemo={() => setPhase('setup')} />;
+  }
+  if (phase === 'exp-demographics') {
+    return <ExpDemographicsForm onSubmit={enrollAndStart} />;
+  }
+  if (phase === 'exp-ui-eval' && expSession) {
+    return (
+      <ExpUiEval
+        blockNumber={blockIndex + 1}
+        totalBlocks={expSession.order.length}
+        pattern={order_at(expSession, blockIndex)}
+        onSubmit={onUiEvalDone}
+      />
+    );
+  }
+  if (phase === 'exp-final') {
+    return <ExpFinalSurvey onSubmit={onFinalDone} submitting={expSubmitting} />;
+  }
+  if (phase === 'exp-done' && expSession) {
+    return <ExpDone participantId={expSession.participantId} onRestart={restartExp} />;
+  }
 
   // ── Survey ──
   if (phase === 'survey') {
@@ -700,8 +1015,8 @@ export default function App() {
 
           {/* 연구 소개 / 참여 안내 */}
           <div style={{ background: '#fff', borderRadius: 16, padding: '16px 18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${DS.primaryLight}` }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: DS.primary, letterSpacing: '-0.3px', marginBottom: 8 }}>
-              📖 연구 참여 안내
+            <div style={{ fontSize: 15, fontWeight: 800, color: DS.primary, letterSpacing: '-0.3px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <IcBook size={18} color={DS.primary} /> 연구 참여 안내
             </div>
             <p style={{ fontSize: 13, color: DS.sub, lineHeight: 1.65, margin: 0 }}>
               본 연구는 <strong>딥보이스(AI 합성 음성) 보이스피싱</strong>에 대응하는
@@ -719,10 +1034,11 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: 12, padding: '10px 12px', background: '#F9F9F9', borderRadius: 10, fontSize: 11.5, color: DS.muted, lineHeight: 1.6 }}>
-              🔒 모든 응답은 <strong>익명</strong>으로 수집되며, 개인을 식별하는 정보는 저장하지 않습니다.
+            <div style={{ marginTop: 12, padding: '10px 12px', background: '#F9F9F9', borderRadius: 10, fontSize: 11.5, color: DS.muted, lineHeight: 1.6, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ flexShrink: 0, marginTop: 1 }}><IcLock size={13} color={DS.muted} /></span>
+              <span>모든 응답은 <strong>익명</strong>으로 수집되며, 개인을 식별하는 정보는 저장하지 않습니다.
               수집된 데이터는 <strong>오직 본 연구 분석 목적</strong>으로만 사용됩니다.
-              참여는 자발적이며 언제든 중단하실 수 있습니다.
+              참여는 자발적이며 언제든 중단하실 수 있습니다.</span>
             </div>
           </div>
 
@@ -787,7 +1103,7 @@ export default function App() {
           {/* AI status detail */}
           {apiStatus && !aiReady && (
             <div style={{ background: '#FFF8E7', borderRadius: 12, padding: '12px 14px', border: '1px solid rgba(251,197,60,0.4)' }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#A96900', marginBottom: 4 }}>⚠ AI 모드 미설정</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#A96900', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><IcAlert size={15} color="#A96900" /> AI 모드 미설정</div>
               <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.65 }}>
                 로컬 AI: <code style={{ background: 'rgba(0,0,0,0.07)', padding: '1px 5px', borderRadius: 4, fontSize: 11.5 }}>ollama serve</code> 실행 후 새로고침<br />
                 클라우드 AI: .env에 <code style={{ background: 'rgba(0,0,0,0.07)', padding: '1px 5px', borderRadius: 4, fontSize: 11.5 }}>ANTHROPIC_API_KEY</code> 설정
@@ -811,8 +1127,9 @@ export default function App() {
             width: '100%', background: '#fff', color: DS.primary, border: `1.5px solid ${DS.primary}`, cursor: 'pointer',
             fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 15, letterSpacing: '-0.2px',
             padding: '13px', borderRadius: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}>
-            📋 체험 후 설문 참여
+            <IcClipboard size={18} color={DS.primary} /> 체험 후 설문 참여
           </button>
         </div>
       </div>
@@ -942,7 +1259,8 @@ export default function App() {
             width: '100%', background: DS.success, color: '#fff', border: 'none', borderRadius: 14,
             padding: '15px', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '-0.2px',
             boxShadow: '0 4px 16px rgba(46,158,91,0.28)',
-          }}>📋 설문 작성하기</button>
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}><IcClipboard size={18} color="#fff" /> 설문 작성하기</button>
           <button onClick={resetExperiment} style={{
             width: '100%', background: '#fff', color: DS.primary, border: `1.5px solid ${DS.primary}`, borderRadius: 14,
             padding: '14px', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '-0.2px',
@@ -955,7 +1273,7 @@ export default function App() {
   // ── Calling ──
   const showWarn = warningVisible && !hungUp;
   return (
-    <div style={{ minHeight: '100vh', background: DS.callBg, display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-body)', boxSizing: 'border-box' }}>
+    <div className={shake ? 'dv-shake' : undefined} style={{ minHeight: '100vh', background: DS.callBg, display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-body)', boxSizing: 'border-box' }}>
 
       {/* Android status bar */}
       <AndroidStatusBar />
@@ -977,7 +1295,7 @@ export default function App() {
           {pattern === 'A' && <PatternA />}
           {pattern === 'B' && <PatternB />}
           {pattern === 'C' && <PatternC />}
-          {pattern === 'D' && <PatternD onHangup={handleHangup} onReverify={handleReverify} reverifyQuestion={reverifyQuestion} reverifyLoading={reverifyLoading} />}
+          {pattern === 'D' && <PatternD onHangup={expMode ? () => {} : handleHangup} onReverify={handleReverify} reverifyQuestion={reverifyQuestion} reverifyLoading={reverifyLoading} />}
         </div>
       )}
 
@@ -1014,7 +1332,7 @@ export default function App() {
       {/* Re-verify modal */}
       {reverifyOpen && (
         <div style={{ margin: '0 14px 8px', background: '#fff9f0', border: '1.5px solid #f47d30', borderRadius: 14, padding: '12px 14px' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#b45309', marginBottom: 6 }}>🔍 재확인 질문</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#b45309', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}><IcSearch size={16} color="#b45309" /> 재확인 질문</div>
           {reverifyLoading ? (
             <div style={{ fontSize: 12.5, color: '#78350f', opacity: 0.7 }}>AI가 상황에 맞는 질문 생성 중...</div>
           ) : (
@@ -1034,20 +1352,44 @@ export default function App() {
         </div>
       )}
 
-      {/* Input bar */}
-      {!hungUp && (
+      {/* 실험모드: 대본을 끝까지 들은 뒤 평가로 진행하는 바 */}
+      {!hungUp && expMode && (
+        <div style={{ padding: '8px 16px 10px', background: '#fff', borderTop: '1px solid rgba(34,34,34,0.07)' }}>
+          {scriptDone ? (
+            <button onClick={() => endExpCall(false)} className="dv-btn" style={{
+              width: '100%', background: DS.primary, color: '#fff', border: 'none', borderRadius: 14,
+              padding: '14px', fontSize: 15.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-body)',
+              boxShadow: '0 4px 14px rgba(0,79,89,0.25)',
+            }}>{scenarioIdx < 3 ? '다음 통화로 →' : '이 경고 방식 평가하기 →'}</button>
+          ) : (
+            <div style={{ textAlign: 'center', fontSize: 13, color: DS.muted, fontWeight: 600, padding: '6px 0' }}>
+              통화를 끝까지 들어 주세요…
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Input bar — 실험모드에서는 표준 자극 유지를 위해 숨김(자유 대화·AI 비활성) */}
+      {!hungUp && !expMode && (
         <div style={{ padding: '6px 14px 8px', background: '#fff', borderTop: '1px solid rgba(34,34,34,0.07)' }}>
+          {micStatus && (
+            <div style={{
+              fontSize: 12, fontWeight: 600, lineHeight: 1.45, margin: '0 4px 6px',
+              color: micStatus.startsWith('⚠') ? DS.red : DS.sub,
+            }}>{micStatus}</div>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: '#f3f4f6', borderRadius: 24, padding: '8px 12px' }}>
             <input
               type="text" value={userInput}
               onChange={e => { setUserInput(e.target.value); recordReactionTime(); }}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
-              placeholder="응답 입력..."
+              placeholder={isListening ? '듣는 중… 말씀하세요' : '응답 입력...'}
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: DS.ink, fontFamily: 'var(--font-body)', letterSpacing: '-0.2px' }}
               disabled={isLoading || isSpeaking}
             />
-            <button onClick={startListening} disabled={isLoading || isSpeaking} className="dv-btn"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, opacity: isListening ? 1 : 0.5 }}>
+            <button onClick={startListening} disabled={isLoading} className="dv-btn"
+              title={isListening ? '듣는 중 — 눌러서 중지' : '마이크로 말하기'}
+              style={{ background: isListening ? 'rgba(211,47,47,0.12)' : 'none', border: 'none', borderRadius: '50%', cursor: 'pointer', padding: 5, opacity: isLoading ? 0.4 : 1, transition: 'background .2s' }}>
               <IcMic size={22} color={isListening ? DS.red : DS.sub} />
             </button>
             <button onClick={() => handleSend()} disabled={!userInput.trim() || isLoading}
@@ -1058,28 +1400,30 @@ export default function App() {
         </div>
       )}
 
-      {/* Call controls */}
-      <div style={{ padding: '6px 16px 16px', background: DS.callBg }}>
-        <CallControls
-          onHangup={handleHangup}
-          onMute={() => { cancelTTS(); setIsSpeaking(false); }}
-          hidden={isPatternD && showWarn}
-        />
-        {isPatternD && showWarn && (
-          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
-            <button onClick={handleHangup} className="dv-btn" style={{
-              width: 66, height: 66, borderRadius: '50%', background: '#DC3545', border: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              boxShadow: '0 8px 20px rgba(220,53,69,0.40)',
-            }}>
-              <IcPhoneEnd size={30} color="#fff" />
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Call controls — 실험모드에서는 통화 컨트롤 영역 전체 숨김(‘다음 통화로’로만 진행). 데모: 정상 동작 */}
+      {!expMode && (
+        <div style={{ padding: '6px 16px 16px', background: DS.callBg }}>
+          <CallControls
+            onHangup={handleHangup}
+            onMute={() => { cancelTTS(); setIsSpeaking(false); }}
+            hidden={isPatternD && showWarn}
+          />
+          {isPatternD && showWarn && (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
+              <button onClick={handleHangup} className="dv-btn" style={{
+                width: 66, height: 66, borderRadius: '50%', background: '#DC3545', border: 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                boxShadow: '0 8px 20px rgba(220,53,69,0.40)',
+              }}>
+                <IcPhoneEnd size={30} color="#fff" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Reaction time (researcher panel) */}
-      {reactionTime !== null && (
+      {/* Reaction time (researcher panel) — 데모 전용 */}
+      {!expMode && reactionTime !== null && (
         <div style={{ background: 'rgba(46,158,91,0.1)', borderTop: '1px solid rgba(46,158,91,0.22)', padding: '7px 16px', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: DS.success }}>
           <span>⏱ 경고 인지 → 첫 행동</span>
           <span style={{ fontFamily: 'var(--font-number)', fontWeight: 700 }}>{(reactionTime/1000).toFixed(2)}초</span>
