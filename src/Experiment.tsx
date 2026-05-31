@@ -138,6 +138,10 @@ export function ExpConsent({ onAgree, onDemo }: { onAgree: () => void; onDemo: (
     <Shell title="딥보이스 경고 UX 연구" subtitle="피험자내 실험 · 약 7~10분 소요">
       <div style={{ background: '#fff', borderRadius: 16, padding: '16px 18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${DS.primaryLight}` }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: DS.primary, marginBottom: 8 }}>연구 참여 안내</div>
+        <div style={{ fontSize: 12.5, color: DS.sub, lineHeight: 1.6, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
+          본 연구는 <strong style={{ color: DS.primary200 }}>숭실대학교 일반대학원 미디어학과 인공지능 전공 박사과정 김민규</strong>
+          (<a href="mailto:kimminkyu@soongsil.ac.kr" style={{ color: DS.primary, textDecoration: 'underline' }}>kimminkyu@soongsil.ac.kr</a>)가 수행하는 학술 연구입니다.
+        </div>
         <p style={{ fontSize: 13, color: DS.sub, lineHeight: 1.65, margin: 0 }}>
           본 연구는 <strong>딥보이스(AI 합성 음성) 보이스피싱</strong> 통화 화면의
           <strong> 경고 UX(사용자 경험)</strong>가 사용자의 사기 인지와 대처에 미치는 효과를 측정하는 학술 실험입니다.
