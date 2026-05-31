@@ -78,6 +78,7 @@
 
   <div class="toolbar">
     <span class="total">실험 참여 <b id="expTotal">0</b> 명 · 데모 <b id="total">0</b> 건</span>
+    <span id="updatedTop" style="font-size:11.5px; color:var(--muted);"></span>
     <span style="flex:1"></span>
     <a class="btn" href="/api/experiment.csv">
       <svg class="ic" viewBox="0 0 24 24" fill="none">
@@ -191,7 +192,7 @@ function fmt(v, suffix='') { return (v === null || v === undefined) ? '—' : (v
 
 async function loadExp() {
   let data;
-  try { data = await (await fetch('/api/experiment/stats')).json(); }
+  try { data = await (await fetch('/api/experiment/stats', { cache: 'no-store' })).json(); }
   catch { document.getElementById('exp-content').innerHTML = '<div class="card"><div class="empty">실험 데이터를 불러올 수 없습니다.</div></div>'; return; }
   document.getElementById('expTotal').textContent = data.participants || 0;
 
@@ -260,52 +261,46 @@ async function loadExp() {
 }
 
 async function load() {
-  loadExp();
-  const res = await fetch('/api/surveys/stats');
-  const { stats, likertLabels } = await res.json();
-  LABELS = likertLabels;
-  document.getElementById('total').textContent = stats.total;
+  await loadExp();
+  try {
+    const res = await fetch('/api/surveys/stats', { cache: 'no-store' });
+    const { stats, likertLabels } = await res.json();
+    LABELS = likertLabels;
+    document.getElementById('total').textContent = stats.total;
 
-  if (stats.total === 0) {
-    document.getElementById('content').innerHTML = '<div class="card"><div class="empty">아직 수집된 설문이 없습니다.<br>참여자가 설문을 제출하면 이곳에 실시간 집계됩니다.</div></div>';
-    document.getElementById('updated').textContent = '';
-    return;
+    if (stats.total === 0) {
+      document.getElementById('content').innerHTML = '<div class="card"><div class="empty">아직 수집된 데모(자유 체험) 설문이 없습니다.</div></div>';
+    } else {
+      document.getElementById('content').innerHTML = `
+        <div class="card">
+          <h2>패턴별 핵심 지표</h2>
+          <div class="pattern-grid">${patternCards(stats.byPattern)}</div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>가장 효과적인 경고 (투표)</h2>${barChart(stats.mostEffective)}</div>
+          <div class="card"><h2>가장 거슬린 경고 (투표)</h2>${barChart(stats.mostAnnoying)}</div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>연령대 분포</h2>${barChart(stats.demographics.age)}</div>
+          <div class="card"><h2>성별 분포</h2>${barChart(stats.demographics.gender)}</div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>보이스피싱 사전 경험</h2>${barChart(stats.priorVishing)}</div>
+          <div class="card"><h2>딥페이크 인지 여부</h2>${barChart(stats.priorDeepfake)}</div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>최종 학력</h2>${barChart(stats.demographics.edu)}</div>
+          <div class="card"><h2>스마트폰 사용시간</h2>${barChart(stats.demographics.usage)}</div>
+        </div>`;
+    }
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="card"><div class="empty">데모 데이터를 불러올 수 없습니다.</div></div>';
   }
-
-  const html = `
-    <div class="card">
-      <h2>패턴별 핵심 지표</h2>
-      <div class="pattern-grid">${patternCards(stats.byPattern)}</div>
-    </div>
-
-    <div class="grid2">
-      <div class="card">
-        <h2>가장 효과적인 경고 (투표)</h2>
-        ${barChart(stats.mostEffective)}
-      </div>
-      <div class="card">
-        <h2>가장 거슬린 경고 (투표)</h2>
-        ${barChart(stats.mostAnnoying)}
-      </div>
-    </div>
-
-    <div class="grid2">
-      <div class="card"><h2>연령대 분포</h2>${barChart(stats.demographics.age)}</div>
-      <div class="card"><h2>성별 분포</h2>${barChart(stats.demographics.gender)}</div>
-    </div>
-
-    <div class="grid2">
-      <div class="card"><h2>보이스피싱 사전 경험</h2>${barChart(stats.priorVishing)}</div>
-      <div class="card"><h2>딥페이크 인지 여부</h2>${barChart(stats.priorDeepfake)}</div>
-    </div>
-
-    <div class="grid2">
-      <div class="card"><h2>최종 학력</h2>${barChart(stats.demographics.edu)}</div>
-      <div class="card"><h2>스마트폰 사용시간</h2>${barChart(stats.demographics.usage)}</div>
-    </div>
-  `;
-  document.getElementById('content').innerHTML = html;
-  document.getElementById('updated').textContent = '마지막 갱신: ' + new Date().toLocaleString('ko-KR');
+  // 데모 데이터 유무와 관계없이 항상 갱신 시각 표시(새로고침 피드백)
+  const now = '마지막 갱신: ' + new Date().toLocaleString('ko-KR');
+  document.getElementById('updated').textContent = now;
+  const top = document.getElementById('updatedTop');
+  if (top) { top.textContent = '✓ ' + now; top.style.color = 'var(--success)'; setTimeout(() => { top.style.color = 'var(--muted)'; }, 1200); }
 }
 
 load();
