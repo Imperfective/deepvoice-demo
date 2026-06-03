@@ -243,8 +243,8 @@ async function loadExp() {
 
   const html = `
     <div class="card">
-      <h2>패턴별 핵심 지표 (분석대상 ${data.participants}명 · 진행중 ${data.inProgress||0}명 · ${data.calls} 통화)</h2>
-      <div style="font-size:11px; color:var(--muted); margin:-2px 0 8px;">분석대상 = 16통화 + 4개 UI평가를 모두 마친 참여자(최종 종합설문 미제출이어도 포함). 진행중 = 그 외 미완료 세션.</div>
+      <h2>패턴별 핵심 지표 (분석대상 ${data.participants}명${(data.synthetic||0) > 0 ? ` <span style="color:var(--error);font-size:13px">· ⚠ 시뮬레이션 ${data.synthetic}명 포함</span>` : ''} · 진행중 ${data.inProgress||0}명 · ${data.calls} 통화)</h2>
+      <div style="font-size:11px; color:var(--muted); margin:-2px 0 8px;">분석대상 = 16통화 + 4개 UI평가를 모두 마친 참여자(최종 종합설문 미제출이어도 포함).${(data.synthetic||0) > 0 ? ' <b style="color:var(--error)">시뮬레이션(SIM) 데이터가 포함되어 있습니다 — 실제 결과로 사용하지 마세요.</b>' : ''}</div>
       <div style="overflow-x:auto">
       <table>
         <thead><tr>

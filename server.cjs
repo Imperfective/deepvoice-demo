@@ -113,6 +113,7 @@ function buildExpEntry(b, completed) {
     participantId: b.participantId,
     seq: b.seq ?? null,
     completed: !!completed,
+    synthetic: !!b.synthetic, // 시뮬레이션(가상) 데이터 표시 — 실제 참여자와 구분
     updatedAt: new Date().toISOString(),
     submittedAt: completed ? new Date().toISOString() : (b.submittedAt ?? null),
     order: Array.isArray(b.order) ? b.order : [],
@@ -136,7 +137,7 @@ function experimentToCsv(participants) {
     'uiTrust', 'uiComprehension', 'uiUsability', 'uiIntrusive', 'uiSatisfaction',
     'mostEffective', 'mostAnnoying', 'habituation', 'readability', 'hapticOk', 'confScoreHelpful',
     'nextActions', 'improve', 'strategy',
-    'completed', 'submittedAt',
+    'synthetic', 'completed', 'submittedAt',
   ];
   // 영문 키 → 한글 헤더명 (Excel 가독성)
   const COL_LABELS = {
@@ -148,7 +149,7 @@ function experimentToCsv(participants) {
     uiTrust: '신뢰도_5점', uiComprehension: '이해도_5점', uiUsability: '사용성_5점', uiIntrusive: '방해도역_5점', uiSatisfaction: '만족도_5점',
     mostEffective: '가장효과적', mostAnnoying: '가장거슬림', habituation: '습관화_5점', readability: '가독성_5점', hapticOk: '햅틱적절_5점', confScoreHelpful: '신뢰도점수도움_5점',
     nextActions: '행동의도', improve: '개선의견(자유)', strategy: '대응전략(자유)',
-    completed: '완료여부', submittedAt: '제출시각',
+    synthetic: '시뮬레이션여부', completed: '완료여부', submittedAt: '제출시각',
   };
   const esc = (v) => {
     const s = v == null ? '' : String(v);
@@ -181,7 +182,7 @@ function experimentToCsv(participants) {
         habituation: c.habituation, readability: c.readability,
         hapticOk: c.hapticOk, confScoreHelpful: c.confScoreHelpful,
         nextActions: nextActionsStr, improve: f.improve || '', strategy: f.strategy || '',
-        completed: p.completed ? 1 : 0, submittedAt: p.submittedAt,
+        synthetic: p.synthetic ? 1 : 0, completed: p.completed ? 1 : 0, submittedAt: p.submittedAt,
       };
       lines.push(cols.map((k) => esc(row[k])).join(','));
     }
@@ -1117,7 +1118,8 @@ app.get('/api/experiment/stats', (_req, res) => {
     evals: (p.uiEvaluations || []).length,
     updatedAt: p.updatedAt || p.submittedAt || null,
   })).sort((a, b) => (b.calls - a.calls)); // 많이 진행한 순
-  res.json({ ok: true, participants: completedPs.length, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison, inProgressList, freeResponses, nextActionCounts });
+  const syntheticCount = completedPs.filter(p => p.synthetic).length;
+  res.json({ ok: true, participants: completedPs.length, synthetic: syntheticCount, inProgress: ps.length - completedPs.length, calls: allCalls.length, byPattern, byScenario, byAge, comparison, inProgressList, freeResponses, nextActionCounts });
 });
 
 // 실험 데이터 전체 삭제 (관리자 인증코드 — 설문 삭제와 동일 코드)
@@ -1136,6 +1138,18 @@ app.post('/api/experiment/clear', (req, res) => {
   try { if (fs.existsSync(EXP_COUNTER)) fs.writeFileSync(EXP_COUNTER, '0', 'utf8'); } catch {}
   console.log(`🗑️  실험 데이터 비움(백업 로그는 보존): ${before}명`);
   res.json({ ok: true, deleted: before });
+});
+
+// 시뮬레이션(가상) 데이터만 삭제 — 실제 참여자 데이터는 보존
+app.post('/api/experiment/clear-synthetic', (req, res) => {
+  const code = String((req.body && req.body.code) || '');
+  if (code !== ADMIN_CODE) return res.status(403).json({ ok: false, error: '인증코드가 올바르지 않습니다.' });
+  const all = readExperiments();
+  const kept = all.filter(p => !p.synthetic);
+  const removed = all.length - kept.length;
+  fs.writeFileSync(EXP_FILE, JSON.stringify(kept, null, 2), 'utf8');
+  console.log(`🧹 시뮬레이션 데이터 삭제: ${removed}명 제거(실제 ${kept.length}명 보존)`);
+  res.json({ ok: true, removed, kept: kept.length });
 });
 
 // 백업 로그(append-only)에서 실험 데이터 복구 — participantId별 최신/완료본 우선
